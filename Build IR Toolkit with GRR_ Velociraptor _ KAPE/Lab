@@ -1,0 +1,209 @@
+ Build IR Toolkit with GRR, Velociraptor & KAPE
+Learning Objectives
+By completing this lab, you will:
+
+Install and configure GRR (Google Rapid Response) for remote forensic analysis
+Set up Velociraptor for endpoint monitoring and incident response
+Deploy KAPE (Kroll Artifact Parser and Extractor) for forensic artifact collection
+Execute collection jobs to test each tool's functionality
+Build a comprehensive incident response toolkit on a single Linux machine
+Prerequisites
+Basic Linux command-line knowledge
+Understanding of incident response concepts
+Familiarity with network configurations
+Root/sudo access on the Linux machine
+Lab Environment
+Al Nafi provides a Linux-based cloud machine for this lab. Simply click Start Lab to access your dedicated environment. The machine comes as bare metal with no pre-installed tools, requiring you to install all necessary components during the lab.
+
+Task 1: Install and Configure GRR
+Subtask 1.1: Install GRR Dependencies
+# Update system packages
+sudo apt update && sudo apt upgrade -y
+
+# Install required dependencies
+sudo apt install -y python3 python3-pip python3-dev python3-venv
+sudo apt install -y mysql-server mysql-client libmysqlclient-dev
+sudo apt install -y build-essential libssl-dev libffi-dev
+Subtask 1.2: Set Up MySQL Database
+# Start MySQL service
+sudo systemctl start mysql
+sudo systemctl enable mysql
+
+# Configure MySQL for GRR
+sudo mysql -e "CREATE DATABASE grr;"
+sudo mysql -e "CREATE USER 'grr'@'localhost' IDENTIFIED BY 'grrpassword';"
+sudo mysql -e "GRANT ALL PRIVILEGES ON grr.* TO 'grr'@'localhost';"
+sudo mysql -e "FLUSH PRIVILEGES;"
+Subtask 1.3: Install GRR Server
+# Create GRR directory
+sudo mkdir -p /opt/grr
+cd /opt/grr
+
+# Create virtual environment
+sudo python3 -m venv grr-env
+sudo chown -R $USER:$USER /opt/grr
+
+# Activate environment and install GRR
+source grr-env/bin/activate
+pip install --upgrade pip
+pip install grr-response-server grr-response-client
+Subtask 1.4: Configure GRR Server
+# Initialize GRR configuration
+grr_config_updater initialize
+
+# Set database configuration
+grr_config_updater set_var --var=Mysql.host --val=localhost
+grr_config_updater set_var --var=Mysql.port --val=3306
+grr_config_updater set_var --var=Mysql.database_name --val=grr
+grr_config_updater set_var --var=Mysql.database_username --val=grr
+grr_config_updater set_var --var=Mysql.database_password --val=grrpassword
+Subtask 1.5: Start GRR Services
+# Start GRR server components
+grr_server --component admin_ui &
+grr_server --component frontend &
+grr_server --component worker &
+
+# Verify GRR is running
+ps aux | grep grr_server
+Task 2: Install and Configure Velociraptor
+Subtask 2.1: Download Velociraptor
+# Create Velociraptor directory
+mkdir -p /opt/velociraptor
+cd /opt/velociraptor
+
+# Download latest Velociraptor binary
+wget https://github.com/Velocidex/velociraptor/releases/latest/download/velociraptor-linux-amd64
+chmod +x velociraptor-linux-amd64
+sudo ln -s /opt/velociraptor/velociraptor-linux-amd64 /usr/local/bin/velociraptor
+Subtask 2.2: Generate Velociraptor Configuration
+# Generate server configuration
+velociraptor config generate > server.config.yaml
+
+# Generate client configuration
+velociraptor --config server.config.yaml config client > client.config.yaml
+Subtask 2.3: Start Velociraptor Server
+# Create data directory
+mkdir -p /opt/velociraptor/data
+
+# Start Velociraptor server
+velociraptor --config server.config.yaml frontend -v &
+
+# Start Velociraptor GUI
+velociraptor --config server.config.yaml gui &
+Subtask 2.4: Create Admin User
+# Create admin user for web interface
+velociraptor --config server.config.yaml user add admin --role administrator
+Task 3: Install and Configure KAPE
+Subtask 3.1: Install Wine for KAPE
+# Install Wine to run KAPE on Linux
+sudo apt install -y wine winetricks
+
+# Configure Wine
+winecfg
+Subtask 3.2: Download and Set Up KAPE
+# Create KAPE directory
+mkdir -p /opt/kape
+cd /opt/kape
+
+# Download KAPE (Note: Requires registration on KrollCyber website)
+# For this lab, we'll use a placeholder command
+# wget https://www.kroll.com/kape/kape.zip
+# unzip kape.zip
+
+# Alternative: Use Eric Zimmerman's tools
+wget https://download.mikestammer.com/net6/kape.zip
+unzip kape.zip
+Subtask 3.3: Configure KAPE Environment
+# Set up KAPE configuration
+cd /opt/kape
+wine kape.exe --help
+
+# Create output directory
+mkdir -p /opt/kape/output
+Task 4: Test Tool Functionality
+Subtask 4.1: Test GRR Collection
+# Access GRR web interface
+echo "GRR Admin UI available at: http://localhost:8000"
+echo "Default credentials: admin/admin"
+
+# Test GRR client connection
+cd /opt/grr
+source grr-env/bin/activate
+grr_client --config=/etc/grr/grr-client.yaml
+Subtask 4.2: Test Velociraptor Collection
+# Test Velociraptor client
+velociraptor --config client.config.yaml client -v
+
+# Run a simple artifact collection
+velociraptor --config server.config.yaml artifacts collect Linux.Sys.Users --output_directory /tmp/velociraptor_output
+Subtask 4.3: Test KAPE Collection
+# Run KAPE collection test
+cd /opt/kape
+wine kape.exe --tsource /var/log --tdest /opt/kape/output --target LinuxLogs
+
+# Verify output
+ls -la /opt/kape/output/
+Task 5: Verify Installation and Configuration
+Subtask 5.1: Check Service Status
+# Check all running processes
+ps aux | grep -E "(grr|velociraptor|kape)"
+
+# Check network ports
+netstat -tlnp | grep -E "(8000|8080|8889)"
+Subtask 5.2: Test Web Interfaces
+# Display access information
+echo "=== IR Toolkit Access Information ==="
+echo "GRR Admin UI: http://localhost:8000"
+echo "Velociraptor GUI: http://localhost:8889"
+echo "Default GRR credentials: admin/admin"
+echo "Velociraptor admin user created during setup"
+Subtask 5.3: Create Test Collection Script
+# Create automated collection script
+cat > /opt/ir_collect.sh << 'EOF'
+#!/bin/bash
+echo "Starting IR Collection..."
+
+# Create output directory with timestamp
+OUTPUT_DIR="/opt/ir_output/$(date +%Y%m%d_%H%M%S)"
+mkdir -p $OUTPUT_DIR
+
+# Collect system information
+echo "Collecting system info..."
+uname -a > $OUTPUT_DIR/system_info.txt
+ps aux > $OUTPUT_DIR/processes.txt
+netstat -tlnp > $OUTPUT_DIR/network.txt
+
+# Run Velociraptor collection
+echo "Running Velociraptor collection..."
+velociraptor --config /opt/velociraptor/server.config.yaml artifacts collect Linux.Sys.Users --output_directory $OUTPUT_DIR/velociraptor
+
+echo "Collection completed: $OUTPUT_DIR"
+EOF
+
+chmod +x /opt/ir_collect.sh
+Verification Commands
+# Verify all tools are installed
+which grr_server
+which velociraptor
+ls /opt/kape/
+
+# Test collection script
+/opt/ir_collect.sh
+
+# Check output
+ls -la /opt/ir_output/
+Troubleshooting
+GRR Issues:
+
+If MySQL connection fails, verify database credentials
+Check firewall settings for port 8000
+Velociraptor Issues:
+
+Ensure configuration files have correct permissions
+Verify port 8889 is available
+KAPE Issues:
+
+Wine configuration may need adjustment for Windows executables
+Check file permissions in output directory
+Conclusion
+You have successfully built a comprehensive incident response toolkit featuring three powerful open-source tools. GRR provides remote forensic capabilities, Velociraptor offers real-time endpoint monitoring, and KAPE enables efficient artifact collection. This toolkit forms the foundation for professional incident response operations, allowing you to collect, analyze, and respond to security incidents effectively. The skills gained in this lab are directly applicable to cybersecurity roles requiring hands-on incident response capabilities.
