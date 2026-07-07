@@ -1,0 +1,441 @@
+Live Response Collection on Windows & Linux Endpoints
+Learning Objectives
+By completing this lab, you will:
+
+Perform live response data collection on Windows and Linux systems
+Use open-source tools for incident response and forensic analysis
+Compare and analyze collected data from different operating systems
+Understand key artifacts and evidence sources in live response scenarios
+Prerequisites
+Basic understanding of Linux command line operations
+Familiarity with file systems and process management
+Knowledge of network concepts and system administration
+Understanding of incident response fundamentals
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated environment. The provided Linux machine is bare metal with no pre-installed tools, so you will install all required tools during the lab exercises.
+
+Task 1: Collect Live Data from a Windows Endpoint
+Subtask 1.1: Set Up Windows Environment and Tools
+Install QEMU and create a Windows environment:
+
+# Update system and install required packages
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y qemu-kvm qemu-utils virtinst virt-manager libvirt-daemon-system libvirt-clients bridge-utils
+
+# Download Windows 10 evaluation ISO (replace with current link)
+wget -O windows10.iso "https://software-download.microsoft.com/download/pr/19041.508.200927-1902.20h2_release_svc_refresh_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso"
+
+# Create virtual disk
+qemu-img create -f qcow2 windows10.qcow2 40G
+
+# Start Windows VM (run in background)
+qemu-system-x86_64 -enable-kvm -m 4096 -cpu host -smp 2 -drive file=windows10.qcow2,format=qcow2 -cdrom windows10.iso -boot d -vnc :1 &
+Subtask 1.2: Install Live Response Tools
+Download and prepare Windows live response tools:
+
+# Create tools directory
+mkdir -p ~/ir-tools/windows
+cd ~/ir-tools/windows
+
+# Download Sysinternals Suite
+wget https://download.sysinternals.com/files/SysinternalsSuite.zip
+unzip SysinternalsSuite.zip -d sysinternals/
+
+# Download KAPE (Kroll Artifact Parser and Extractor)
+wget https://www.kroll.com/en/services/cyber-risk/incident-response-litigation-support/kroll-artifact-parser-extractor-kape -O kape.zip
+unzip kape.zip -d kape/
+
+# Download Volatility for memory analysis
+git clone https://github.com/volatilityfoundation/volatility3.git
+Subtask 1.3: Simulate Windows Live Response Collection
+Create a simulation script for Windows data collection:
+
+# Create Windows collection simulation script
+cat > collect_windows_data.sh << 'EOF'
+#!/bin/bash
+
+# Create output directory
+mkdir -p ~/windows_collection/$(date +%Y%m%d_%H%M%S)
+OUTPUT_DIR=~/windows_collection/$(date +%Y%m%d_%H%M%S)
+
+echo "Starting Windows Live Response Collection..."
+
+# Simulate system information collection
+echo "=== SYSTEM INFORMATION ===" > $OUTPUT_DIR/system_info.txt
+echo "Computer Name: DESKTOP-WIN10" >> $OUTPUT_DIR/system_info.txt
+echo "OS Version: Windows 10 Pro" >> $OUTPUT_DIR/system_info.txt
+echo "Architecture: x64" >> $OUTPUT_DIR/system_info.txt
+echo "Last Boot Time: $(date -d '2 hours ago')" >> $OUTPUT_DIR/system_info.txt
+
+# Simulate running processes
+echo "=== RUNNING PROCESSES ===" > $OUTPUT_DIR/processes.txt
+cat << 'PROCESSES' >> $OUTPUT_DIR/processes.txt
+PID    Process Name           Memory Usage
+4      System                 8,192 KB
+88     Registry               32,768 KB
+356    smss.exe              1,024 KB
+448    csrss.exe             4,096 KB
+520    wininit.exe           2,048 KB
+528    csrss.exe             8,192 KB
+588    winlogon.exe          4,096 KB
+664    services.exe          8,192 KB
+672    lsass.exe             16,384 KB
+780    svchost.exe           32,768 KB
+PROCESSES
+
+# Simulate network connections
+echo "=== NETWORK CONNECTIONS ===" > $OUTPUT_DIR/network.txt
+cat << 'NETWORK' >> $OUTPUT_DIR/network.txt
+Proto  Local Address          Foreign Address        State
+TCP    0.0.0.0:135           0.0.0.0:0              LISTENING
+TCP    0.0.0.0:445           0.0.0.0:0              LISTENING
+TCP    192.168.1.100:139     0.0.0.0:0              LISTENING
+TCP    192.168.1.100:49152   40.77.226.250:443      ESTABLISHED
+UDP    0.0.0.0:123           *:*                    
+UDP    192.168.1.100:137     *:*
+NETWORK
+
+# Simulate registry artifacts
+echo "=== REGISTRY ARTIFACTS ===" > $OUTPUT_DIR/registry.txt
+cat << 'REGISTRY' >> $OUTPUT_DIR/registry.txt
+Recent Documents:
+- document1.docx (accessed: 2024-01-15 14:30:22)
+- presentation.pptx (accessed: 2024-01-15 13:45:10)
+
+USB Devices:
+- Kingston DataTraveler (last connected: 2024-01-14 16:20:15)
+- SanDisk Cruzer (last connected: 2024-01-10 09:15:30)
+
+Startup Programs:
+- Microsoft Office Click-to-Run
+- Windows Security notification icon
+- Suspicious_app.exe (C:\Users\Public\suspicious_app.exe)
+REGISTRY
+
+# Simulate file system timeline
+echo "=== FILE SYSTEM TIMELINE ===" > $OUTPUT_DIR/timeline.txt
+cat << 'TIMELINE' >> $OUTPUT_DIR/timeline.txt
+2024-01-15 15:30:22 | Created | C:\Users\user\Desktop\malware.exe
+2024-01-15 15:25:10 | Modified | C:\Windows\System32\drivers\etc\hosts
+2024-01-15 14:45:33 | Accessed | C:\Users\user\Documents\confidential.xlsx
+2024-01-15 14:30:15 | Created | C:\Temp\payload.dll
+2024-01-15 13:20:44 | Modified | C:\Users\user\AppData\Roaming\Microsoft\Windows\Recent\
+TIMELINE
+
+echo "Windows collection completed. Data saved to: $OUTPUT_DIR"
+EOF
+
+chmod +x collect_windows_data.sh
+./collect_windows_data.sh
+Task 2: Collect Live Data from a Linux Endpoint
+Subtask 2.1: Install Linux Live Response Tools
+Install essential tools for Linux live response:
+
+# Install forensic and analysis tools
+sudo apt install -y volatility-tools sleuthkit autopsy foremost binwalk hexedit
+sudo apt install -y htop iotop nethogs ss lsof strace ltrace
+sudo apt install -y chkrootkit rkhunter clamav clamav-daemon
+
+# Install additional analysis tools
+sudo apt install -y yara python3-yara python3-pip
+pip3 install psutil python-registry
+
+# Create Linux tools directory
+mkdir -p ~/ir-tools/linux
+cd ~/ir-tools/linux
+
+# Download YARA rules
+git clone https://github.com/Yara-Rules/rules.git yara-rules
+Subtask 2.2: Perform Live Linux Data Collection
+Execute comprehensive live response collection:
+
+# Create Linux collection script
+cat > collect_linux_data.sh << 'EOF'
+#!/bin/bash
+
+# Create output directory
+OUTPUT_DIR=~/linux_collection/$(date +%Y%m%d_%H%M%S)
+mkdir -p $OUTPUT_DIR
+
+echo "Starting Linux Live Response Collection..."
+
+# System Information
+echo "=== SYSTEM INFORMATION ===" > $OUTPUT_DIR/system_info.txt
+uname -a >> $OUTPUT_DIR/system_info.txt
+cat /etc/os-release >> $OUTPUT_DIR/system_info.txt
+uptime >> $OUTPUT_DIR/system_info.txt
+date >> $OUTPUT_DIR/system_info.txt
+
+# Running Processes
+echo "=== RUNNING PROCESSES ===" > $OUTPUT_DIR/processes.txt
+ps aux --sort=-%cpu >> $OUTPUT_DIR/processes.txt
+echo -e "\n=== PROCESS TREE ===" >> $OUTPUT_DIR/processes.txt
+pstree -p >> $OUTPUT_DIR/processes.txt
+
+# Network Information
+echo "=== NETWORK CONNECTIONS ===" > $OUTPUT_DIR/network.txt
+ss -tuln >> $OUTPUT_DIR/network.txt
+echo -e "\n=== ESTABLISHED CONNECTIONS ===" >> $OUTPUT_DIR/network.txt
+ss -tup >> $OUTPUT_DIR/network.txt
+echo -e "\n=== ROUTING TABLE ===" >> $OUTPUT_DIR/network.txt
+route -n >> $OUTPUT_DIR/network.txt
+
+# File System Information
+echo "=== MOUNTED FILESYSTEMS ===" > $OUTPUT_DIR/filesystem.txt
+mount >> $OUTPUT_DIR/filesystem.txt
+echo -e "\n=== DISK USAGE ===" >> $OUTPUT_DIR/filesystem.txt
+df -h >> $OUTPUT_DIR/filesystem.txt
+
+# User Information
+echo "=== LOGGED IN USERS ===" > $OUTPUT_DIR/users.txt
+who >> $OUTPUT_DIR/users.txt
+echo -e "\n=== LAST LOGINS ===" >> $OUTPUT_DIR/users.txt
+last -n 20 >> $OUTPUT_DIR/users.txt
+echo -e "\n=== USER ACCOUNTS ===" >> $OUTPUT_DIR/users.txt
+cat /etc/passwd >> $OUTPUT_DIR/users.txt
+
+# System Logs (recent entries)
+echo "=== SYSTEM LOGS ===" > $OUTPUT_DIR/logs.txt
+tail -n 100 /var/log/syslog >> $OUTPUT_DIR/logs.txt 2>/dev/null || echo "Syslog not accessible" >> $OUTPUT_DIR/logs.txt
+echo -e "\n=== AUTH LOGS ===" >> $OUTPUT_DIR/logs.txt
+tail -n 50 /var/log/auth.log >> $OUTPUT_DIR/logs.txt 2>/dev/null || echo "Auth log not accessible" >> $OUTPUT_DIR/logs.txt
+
+# Cron Jobs
+echo "=== CRON JOBS ===" > $OUTPUT_DIR/cron.txt
+crontab -l >> $OUTPUT_DIR/cron.txt 2>/dev/null || echo "No user crontab" >> $OUTPUT_DIR/cron.txt
+echo -e "\n=== SYSTEM CRON ===" >> $OUTPUT_DIR/cron.txt
+cat /etc/crontab >> $OUTPUT_DIR/cron.txt 2>/dev/null
+
+# Environment Variables
+echo "=== ENVIRONMENT VARIABLES ===" > $OUTPUT_DIR/environment.txt
+env >> $OUTPUT_DIR/environment.txt
+
+# Open Files
+echo "=== OPEN FILES ===" > $OUTPUT_DIR/open_files.txt
+lsof >> $OUTPUT_DIR/open_files.txt 2>/dev/null || echo "lsof not available" >> $OUTPUT_DIR/open_files.txt
+
+# Memory Information
+echo "=== MEMORY USAGE ===" > $OUTPUT_DIR/memory.txt
+free -h >> $OUTPUT_DIR/memory.txt
+echo -e "\n=== MEMORY MAP ===" >> $OUTPUT_DIR/memory.txt
+cat /proc/meminfo >> $OUTPUT_DIR/memory.txt
+
+echo "Linux collection completed. Data saved to: $OUTPUT_DIR"
+EOF
+
+chmod +x collect_linux_data.sh
+./collect_linux_data.sh
+Subtask 2.3: Create Suspicious Activity Simulation
+Generate suspicious activities for analysis:
+
+# Create suspicious activity simulation
+cat > create_suspicious_activity.sh << 'EOF'
+#!/bin/bash
+
+echo "Creating suspicious activities for analysis..."
+
+# Create suspicious files
+mkdir -p /tmp/suspicious_dir
+echo "This is a suspicious payload" > /tmp/suspicious_dir/payload.txt
+echo '#!/bin/bash\necho "Malicious script executed"' > /tmp/suspicious_dir/malware.sh
+chmod +x /tmp/suspicious_dir/malware.sh
+
+# Create fake network activity log
+cat > /tmp/suspicious_connections.log << 'CONNECTIONS'
+2024-01-15 15:30:22 TCP 192.168.1.100:4444 -> 10.0.0.1:1234 ESTABLISHED
+2024-01-15 15:29:15 TCP 192.168.1.100:8080 -> 192.168.1.1:80 TIME_WAIT
+2024-01-15 15:28:44 UDP 192.168.1.100:53 -> 8.8.8.8:53 CLOSED
+CONNECTIONS
+
+# Create suspicious process simulation
+nohup sleep 3600 & echo $! > /tmp/suspicious_pid.txt
+
+# Create modified system file simulation
+echo "# Modified hosts file" >> /tmp/fake_hosts
+echo "127.0.0.1 malicious-site.com" >> /tmp/fake_hosts
+echo "0.0.0.0 security-update.com" >> /tmp/fake_hosts
+
+echo "Suspicious activities created for analysis"
+EOF
+
+chmod +x create_suspicious_activity.sh
+./create_suspicious_activity.sh
+Task 3: Compare Collected Data
+Subtask 3.1: Analyze Windows Collection Results
+Review and analyze Windows data:
+
+# Create Windows analysis script
+cat > analyze_windows_data.sh << 'EOF'
+#!/bin/bash
+
+WINDOWS_DIR=$(ls -td ~/windows_collection/* | head -1)
+echo "Analyzing Windows collection from: $WINDOWS_DIR"
+
+echo "=== WINDOWS ANALYSIS SUMMARY ===" > ~/analysis_comparison.txt
+echo "Collection Date: $(basename $WINDOWS_DIR)" >> ~/analysis_comparison.txt
+echo "" >> ~/analysis_comparison.txt
+
+echo "SYSTEM INFORMATION:" >> ~/analysis_comparison.txt
+cat $WINDOWS_DIR/system_info.txt >> ~/analysis_comparison.txt
+echo "" >> ~/analysis_comparison.txt
+
+echo "SUSPICIOUS INDICATORS:" >> ~/analysis_comparison.txt
+echo "- Suspicious executable found: malware.exe" >> ~/analysis_comparison.txt
+echo "- Modified hosts file detected" >> ~/analysis_comparison.txt
+echo "- Unknown USB device connections" >> ~/analysis_comparison.txt
+echo "- Suspicious startup program: Suspicious_app.exe" >> ~/analysis_comparison.txt
+echo "" >> ~/analysis_comparison.txt
+
+echo "NETWORK ANALYSIS:" >> ~/analysis_comparison.txt
+echo "- Active connections to external IPs" >> ~/analysis_comparison.txt
+echo "- Standard Windows services listening" >> ~/analysis_comparison.txt
+echo "" >> ~/analysis_comparison.txt
+
+echo "Windows analysis completed"
+EOF
+
+chmod +x analyze_windows_data.sh
+./analyze_windows_data.sh
+Subtask 3.2: Analyze Linux Collection Results
+Review and analyze Linux data:
+
+# Create Linux analysis script
+cat > analyze_linux_data.sh << 'EOF'
+#!/bin/bash
+
+LINUX_DIR=$(ls -td ~/linux_collection/* | head -1)
+echo "Analyzing Linux collection from: $LINUX_DIR"
+
+echo "" >> ~/analysis_comparison.txt
+echo "=== LINUX ANALYSIS SUMMARY ===" >> ~/analysis_comparison.txt
+echo "Collection Date: $(basename $LINUX_DIR)" >> ~/analysis_comparison.txt
+echo "" >> ~/analysis_comparison.txt
+
+echo "SYSTEM INFORMATION:" >> ~/analysis_comparison.txt
+head -5 $LINUX_DIR/system_info.txt >> ~/analysis_comparison.txt
+echo "" >> ~/analysis_comparison.txt
+
+echo "SUSPICIOUS INDICATORS:" >> ~/analysis_comparison.txt
+echo "- Suspicious files in /tmp directory" >> ~/analysis_comparison.txt
+echo "- Long-running sleep process detected" >> ~/analysis_comparison.txt
+echo "- Modified network configuration files" >> ~/analysis_comparison.txt
+echo "" >> ~/analysis_comparison.txt
+
+echo "PROCESS ANALYSIS:" >> ~/analysis_comparison.txt
+echo "Top CPU processes:" >> ~/analysis_comparison.txt
+head -10 $LINUX_DIR/processes.txt | tail -5 >> ~/analysis_comparison.txt
+echo "" >> ~/analysis_comparison.txt
+
+echo "NETWORK ANALYSIS:" >> ~/analysis_comparison.txt
+echo "Listening services:" >> ~/analysis_comparison.txt
+grep LISTEN $LINUX_DIR/network.txt | head -5 >> ~/analysis_comparison.txt
+echo "" >> ~/analysis_comparison.txt
+
+echo "Linux analysis completed"
+EOF
+
+chmod +x analyze_linux_data.sh
+./analyze_linux_data.sh
+Subtask 3.3: Generate Comparison Report
+Create comprehensive comparison analysis:
+
+# Create comparison report
+cat > generate_comparison_report.sh << 'EOF'
+#!/bin/bash
+
+echo "" >> ~/analysis_comparison.txt
+echo "=== COMPARATIVE ANALYSIS ===" >> ~/analysis_comparison.txt
+echo "" >> ~/analysis_comparison.txt
+
+echo "SIMILARITIES:" >> ~/analysis_comparison.txt
+echo "- Both systems show signs of compromise" >> ~/analysis_comparison.txt
+echo "- Suspicious files present on both platforms" >> ~/analysis_comparison.txt
+echo "- Network connections to external hosts" >> ~/analysis_comparison.txt
+echo "- Evidence of persistence mechanisms" >> ~/analysis_comparison.txt
+echo "" >> ~/analysis_comparison.txt
+
+echo "DIFFERENCES:" >> ~/analysis_comparison.txt
+echo "Windows Specific:" >> ~/analysis_comparison.txt
+echo "- Registry-based persistence" >> ~/analysis_comparison.txt
+echo "- Windows service manipulation" >> ~/analysis_comparison.txt
+echo "- USB device tracking available" >> ~/analysis_comparison.txt
+echo "- Event log analysis possible" >> ~/analysis_comparison.txt
+echo "" >> ~/analysis_comparison.txt
+
+echo "Linux Specific:" >> ~/analysis_comparison.txt
+echo "- Cron-based persistence" >> ~/analysis_comparison.txt
+echo "- Process tree analysis" >> ~/analysis_comparison.txt
+echo "- System log analysis (syslog)" >> ~/analysis_comparison.txt
+echo "- File permission analysis" >> ~/analysis_comparison.txt
+echo "" >> ~/analysis_comparison.txt
+
+echo "RECOMMENDATIONS:" >> ~/analysis_comparison.txt
+echo "1. Isolate both systems from network" >> ~/analysis_comparison.txt
+echo "2. Collect memory dumps for further analysis" >> ~/analysis_comparison.txt
+echo "3. Perform full disk imaging" >> ~/analysis_comparison.txt
+echo "4. Analyze malware samples in sandbox environment" >> ~/analysis_comparison.txt
+echo "5. Review user account activities" >> ~/analysis_comparison.txt
+echo "6. Check for lateral movement indicators" >> ~/analysis_comparison.txt
+
+echo "" >> ~/analysis_comparison.txt
+echo "Report generated on: $(date)" >> ~/analysis_comparison.txt
+
+echo "Comparison report generated: ~/analysis_comparison.txt"
+EOF
+
+chmod +x generate_comparison_report.sh
+./generate_comparison_report.sh
+Subtask 3.4: Review Final Results
+Display and review the complete analysis:
+
+# Display final analysis
+echo "=== LIVE RESPONSE COLLECTION COMPLETE ==="
+echo ""
+echo "Collections performed:"
+ls -la ~/windows_collection/
+ls -la ~/linux_collection/
+echo ""
+echo "=== FINAL ANALYSIS REPORT ==="
+cat ~/analysis_comparison.txt
+echo ""
+echo "=== ARTIFACTS COLLECTED ==="
+echo "Windows artifacts:"
+find ~/windows_collection -name "*.txt" -exec basename {} \; | sort
+echo ""
+echo "Linux artifacts:"
+find ~/linux_collection -name "*.txt" -exec basename {} \; | sort
+Verification and Cleanup
+Verify all collections and clean up:
+
+# Verify collections
+echo "Verifying data integrity..."
+for dir in ~/windows_collection/*/; do
+    echo "Windows collection: $(basename "$dir")"
+    ls -la "$dir"
+done
+
+for dir in ~/linux_collection/*/; do
+    echo "Linux collection: $(basename "$dir")"
+    ls -la "$dir"
+done
+
+# Optional cleanup
+read -p "Do you want to clean up temporary files? (y/n): " cleanup
+if [[ $cleanup == "y" ]]; then
+    rm -rf /tmp/suspicious_dir
+    rm -f /tmp/suspicious_connections.log
+    rm -f /tmp/fake_hosts
+    kill $(cat /tmp/suspicious_pid.txt 2>/dev/null) 2>/dev/null
+    rm -f /tmp/suspicious_pid.txt
+    echo "Cleanup completed"
+fi
+Conclusion
+You have successfully completed live response data collection on both Windows and Linux endpoints. This lab demonstrated:
+
+Cross-platform incident response techniques using open-source tools
+Data collection methodologies for different operating systems
+Comparative analysis of Windows and Linux artifacts
+Identification of suspicious activities and indicators of compromise
+The skills learned in this lab are essential for incident responders and digital forensics professionals who must quickly assess and collect evidence from compromised systems. Understanding the differences between Windows and Linux artifacts helps in developing comprehensive response strategies and ensures critical evidence is not overlooked during investigations.
+
+Key takeaways include the importance of systematic data collection, proper documentation, and the ability to adapt collection techniques based on the target operating system's unique characteristics and available artifacts.
