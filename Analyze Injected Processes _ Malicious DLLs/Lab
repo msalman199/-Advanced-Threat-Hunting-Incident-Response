@@ -1,0 +1,219 @@
+Analyze Injected Processes & Malicious DLLs
+Learning Objectives
+By completing this lab, you will:
+
+Detect process injection techniques using memory forensics
+Extract and analyze malicious DLLs from memory dumps
+Investigate malware interactions with legitimate system processes
+Use open-source tools for advanced memory analysis
+Prerequisites
+Basic understanding of Linux command line
+Familiarity with process concepts and memory management
+Knowledge of Windows PE file structure (helpful but not required)
+Understanding of malware analysis fundamentals
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated environment. The provided Linux machine is bare metal with no pre-installed tools, so you will install all required tools during the lab.
+
+Task 1: Set Up Analysis Environment and Obtain Memory Dump
+Subtask 1.1: Install Required Tools
+# Update system packages
+sudo apt update && sudo apt upgrade -y
+
+# Install Python and pip
+sudo apt install python3 python3-pip git wget unzip -y
+
+# Install Volatility 3 (latest memory forensics framework)
+pip3 install volatility3
+
+# Install additional analysis tools
+sudo apt install hexdump binutils file -y
+
+# Verify Volatility installation
+vol3 --help
+Subtask 1.2: Download Sample Memory Dump
+# Create working directory
+mkdir ~/memory_analysis && cd ~/memory_analysis
+
+# Download a sample Windows memory dump with process injection
+wget https://github.com/volatilityfoundation/volatility/raw/master/contrib/plugins/malware/samples/zeus.vmem -O infected_memory.vmem
+
+# If the above fails, create a simulated environment
+# Download alternative sample
+wget https://www.memoryanalysis.net/samples/stuxnet.vmem -O infected_memory.vmem
+
+# Verify file download
+ls -lh infected_memory.vmem
+file infected_memory.vmem
+Task 2: Analyze Memory Dump for Injected Processes
+Subtask 2.1: Identify System Information and Processes
+# Determine Windows version and build
+vol3 -f infected_memory.vmem windows.info
+
+# List all running processes
+vol3 -f infected_memory.vmem windows.pslist > process_list.txt
+
+# Display process tree to identify parent-child relationships
+vol3 -f infected_memory.vmem windows.pstree
+
+# Look for suspicious processes
+cat process_list.txt | grep -E "(svchost|explorer|winlogon|csrss)"
+Subtask 2.2: Detect Process Hollowing and Injection
+# Check for process hollowing (legitimate process with malicious code)
+vol3 -f infected_memory.vmem windows.malfind
+
+# Identify processes with unusual memory characteristics
+vol3 -f infected_memory.vmem windows.memmap --pid [SUSPICIOUS_PID]
+
+# Scan for injected code patterns
+vol3 -f infected_memory.vmem windows.vadinfo --pid [SUSPICIOUS_PID]
+
+# Look for processes with mismatched executable paths
+vol3 -f infected_memory.vmem windows.dlllist --pid [SUSPICIOUS_PID]
+Subtask 2.3: Analyze Suspicious Process Memory
+# Dump suspicious process memory for analysis
+vol3 -f infected_memory.vmem windows.memmap --pid [SUSPICIOUS_PID] --dump
+
+# Extract process executable
+vol3 -f infected_memory.vmem windows.procdump --pid [SUSPICIOUS_PID]
+
+# Analyze dumped memory regions
+hexdump -C pid.[SUSPICIOUS_PID].dmp | head -50
+
+# Search for suspicious strings in memory
+strings pid.[SUSPICIOUS_PID].dmp | grep -E "(http|ftp|\.exe|\.dll)" | head -20
+Task 3: Extract and Review Malicious DLLs
+Subtask 3.1: Identify Loaded DLLs
+# List all DLLs loaded by suspicious processes
+vol3 -f infected_memory.vmem windows.dlllist --pid [SUSPICIOUS_PID] > dll_list.txt
+
+# Look for unsigned or suspicious DLLs
+cat dll_list.txt | grep -v "C:\\Windows\\System32"
+
+# Check for DLLs loaded from unusual locations
+cat dll_list.txt | grep -E "(Temp|AppData|Users)"
+Subtask 3.2: Extract Malicious DLLs
+# Dump specific DLL from memory
+vol3 -f infected_memory.vmem windows.dlldump --pid [SUSPICIOUS_PID] --base [DLL_BASE_ADDRESS]
+
+# Extract all DLLs from suspicious process
+vol3 -f infected_memory.vmem windows.dlldump --pid [SUSPICIOUS_PID]
+
+# List extracted DLL files
+ls -la *.dll
+
+# Analyze DLL file properties
+for dll in *.dll; do
+    echo "=== Analyzing $dll ==="
+    file "$dll"
+    strings "$dll" | head -10
+    echo ""
+done
+Subtask 3.3: Analyze DLL Injection Techniques
+# Check for reflective DLL loading
+vol3 -f infected_memory.vmem windows.handles --pid [SUSPICIOUS_PID] | grep -i "section"
+
+# Look for manual DLL mapping evidence
+vol3 -f infected_memory.vmem windows.vadinfo --pid [SUSPICIOUS_PID] | grep -E "(PAGE_EXECUTE|PRIVATE)"
+
+# Search for DLL injection artifacts
+strings infected_memory.vmem | grep -E "(LoadLibrary|GetProcAddress|VirtualAlloc)" | head -10
+Task 4: Investigate Malware Interactions with System Processes
+Subtask 4.1: Analyze Network Connections
+# Extract network connections from memory
+vol3 -f infected_memory.vmem windows.netstat
+
+# Look for suspicious network activity
+vol3 -f infected_memory.vmem windows.netscan | grep -E "(ESTABLISHED|LISTENING)"
+
+# Check for DNS queries
+strings infected_memory.vmem | grep -E "([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}" | sort | uniq | head -20
+Subtask 4.2: Examine Registry Modifications
+# Extract registry hives
+vol3 -f infected_memory.vmem windows.registry.hivelist
+
+# Look for persistence mechanisms
+vol3 -f infected_memory.vmem windows.registry.printkey --key "Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+
+# Check for service installations
+vol3 -f infected_memory.vmem windows.svcscan | grep -v "SYSTEM"
+Subtask 4.3: Analyze File System Interactions
+# List file handles for suspicious processes
+vol3 -f infected_memory.vmem windows.handles --pid [SUSPICIOUS_PID] | grep "File"
+
+# Extract suspicious files from memory
+vol3 -f infected_memory.vmem windows.filescan | grep -E "(\.exe|\.dll|\.bat)" | head -20
+
+# Dump specific files if found
+vol3 -f infected_memory.vmem windows.dumpfiles --virtaddr [FILE_ADDRESS]
+Subtask 4.4: Create Analysis Report
+# Generate comprehensive analysis report
+cat > analysis_report.txt << EOF
+=== Memory Forensics Analysis Report ===
+
+Date: $(date)
+Memory Dump: infected_memory.vmem
+
+SUSPICIOUS PROCESSES IDENTIFIED:
+$(vol3 -f infected_memory.vmem windows.pslist | grep -E "(unusual_process_name)")
+
+INJECTED DLLS FOUND:
+$(ls -la *.dll 2>/dev/null || echo "No DLLs extracted")
+
+NETWORK CONNECTIONS:
+$(vol3 -f infected_memory.vmem windows.netstat 2>/dev/null | head -10)
+
+PERSISTENCE MECHANISMS:
+$(vol3 -f infected_memory.vmem windows.registry.printkey --key "Software\\Microsoft\\Windows\\CurrentVersion\\Run" 2>/dev/null | head -5)
+
+RECOMMENDATIONS:
+- Quarantine identified malicious processes
+- Remove persistence registry entries
+- Block identified network communications
+- Update antivirus signatures
+
+EOF
+
+# Display report
+cat analysis_report.txt
+Verification and Testing
+Verify Analysis Results
+# Confirm tools are working
+echo "=== Tool Verification ==="
+vol3 --version
+python3 --version
+
+# Verify extracted artifacts
+echo "=== Extracted Files ==="
+ls -la *.dmp *.dll 2>/dev/null || echo "No artifacts extracted"
+
+# Check analysis outputs
+echo "=== Analysis Files ==="
+ls -la *.txt
+
+# Validate memory dump integrity
+echo "=== Memory Dump Info ==="
+file infected_memory.vmem
+Troubleshooting Common Issues
+Issue: Volatility fails to recognize memory dump format
+
+# Try different profile detection
+vol3 -f infected_memory.vmem windows.info.Info
+Issue: No suspicious processes found
+
+# Use broader search criteria
+vol3 -f infected_memory.vmem windows.malfind --pid ALL
+Issue: DLL extraction fails
+
+# Check available memory regions first
+vol3 -f infected_memory.vmem windows.vadinfo --pid [PID]
+Conclusion
+In this lab, you successfully:
+
+Set up a complete memory forensics environment using open-source tools
+Identified process injection techniques through memory analysis
+Extracted and analyzed malicious DLLs from infected processes
+Investigated malware persistence mechanisms and system interactions
+Created a comprehensive analysis report documenting findings
+These skills are essential for incident response, malware analysis, and digital forensics roles. Memory forensics provides crucial insights into advanced threats that traditional file-based analysis might miss, making it a valuable technique for cybersecurity professionals investigating sophisticated attacks and APT activities.
+
+The techniques learned here apply directly to real-world scenarios where malware uses process injection, DLL hijacking, and memory-resident attacks to evade detection while maintaining persistence on compromised systems.
