@@ -1,0 +1,12 @@
+[Unit]
+Description=Fake Background Service
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/bin/bash -c 'sleep 3600 &'
+Restart=always
+User=root
+
+[Install]
+WantedBy=multi-user.target
