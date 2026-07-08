@@ -1,0 +1,239 @@
+Apply Sigma Rules in Log Analysis with Chainsaw
+Learning Objectives
+By completing this lab, you will:
+
+Install and configure Chainsaw for Windows event log analysis
+Apply Sigma rules to detect security incidents in log data
+Identify suspicious activities using rule-based detection
+Analyze detection results and understand threat patterns
+Prerequisites
+Basic understanding of Windows event logs
+Familiarity with Linux command line operations
+Knowledge of security incident detection concepts
+Understanding of YAML file structure
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated environment. The provided Linux machine is bare metal with no pre-installed tools, so you will install all required tools during the lab exercises.
+
+Task 1: Download and Configure Chainsaw for Log Analysis
+Step 1.1: Install Required Dependencies
+# Update system packages
+sudo apt update && sudo apt upgrade -y
+
+# Install essential tools
+sudo apt install -y wget curl unzip git build-essential
+Step 1.2: Download and Install Chainsaw
+# Create working directory
+mkdir ~/chainsaw-lab && cd ~/chainsaw-lab
+
+# Download latest Chainsaw release
+wget https://github.com/WithSecureLabs/chainsaw/releases/download/v2.8.1/chainsaw_x86_64-unknown-linux-gnu.tar.gz
+
+# Extract Chainsaw
+tar -xzf chainsaw_x86_64-unknown-linux-gnu.tar.gz
+
+# Make executable and move to PATH
+chmod +x chainsaw
+sudo mv chainsaw /usr/local/bin/
+
+# Verify installation
+chainsaw --version
+Step 1.3: Download Sample Windows Event Logs
+# Create logs directory
+mkdir ~/chainsaw-lab/logs
+
+# Download sample Windows event logs for analysis
+wget -O ~/chainsaw-lab/logs/Security.evtx "https://github.com/sbousseaden/EVTX-ATTACK-SAMPLES/raw/master/Lateral%20Movement/empire_dcsync_dcerpc_drsuapi_DsGetNCChanges.evtx"
+
+wget -O ~/chainsaw-lab/logs/System.evtx "https://github.com/sbousseaden/EVTX-ATTACK-SAMPLES/raw/master/Defense%20Evasion/sysmon_wmi_T1047_wbemtest.evtx"
+
+# Verify downloaded files
+ls -la ~/chainsaw-lab/logs/
+Task 2: Apply Sigma Rules to Event Logs
+Step 2.1: Download Sigma Rules Repository
+# Clone Sigma rules repository
+cd ~/chainsaw-lab
+git clone https://github.com/SigmaHQ/sigma.git
+
+# Navigate to Windows-specific rules
+cd sigma/rules/windows
+ls -la
+Step 2.2: Convert Sigma Rules for Chainsaw
+# Install Python and required packages
+sudo apt install -y python3 python3-pip
+pip3 install pysigma pysigma-backend-splunk
+
+# Create custom Sigma rules directory
+mkdir ~/chainsaw-lab/custom-rules
+
+# Copy relevant Sigma rules for analysis
+cp ~/chainsaw-lab/sigma/rules/windows/process_creation/proc_creation_win_susp_powershell_empire.yml ~/chainsaw-lab/custom-rules/
+cp ~/chainsaw-lab/sigma/rules/windows/builtin/security/win_security_susp_failed_logons.yml ~/chainsaw-lab/custom-rules/
+cp ~/chainsaw-lab/sigma/rules/windows/sysmon/sysmon_wmi_susp_scripting.yml ~/chainsaw-lab/custom-rules/
+Step 2.3: Run Chainsaw with Sigma Rules
+# Analyze logs using built-in Sigma rules
+chainsaw hunt ~/chainsaw-lab/logs/ -s ~/chainsaw-lab/sigma/rules/ --mapping ~/chainsaw-lab/sigma/tools/config/generic/windows-audit.yml --output ~/chainsaw-lab/results.json
+
+# Generate detailed CSV report
+chainsaw hunt ~/chainsaw-lab/logs/ -s ~/chainsaw-lab/sigma/rules/ --csv --output ~/chainsaw-lab/detailed-results.csv
+
+# Display initial results
+head -20 ~/chainsaw-lab/detailed-results.csv
+Task 3: Identify Suspicious Activities in the Logs
+Step 3.1: Analyze Detection Results
+# View JSON results with formatting
+cat ~/chainsaw-lab/results.json | python3 -m json.tool | head -50
+
+# Count total detections
+grep -c "detection" ~/chainsaw-lab/results.json
+
+# Search for high-severity detections
+chainsaw hunt ~/chainsaw-lab/logs/ -s ~/chainsaw-lab/sigma/rules/ --level high --output ~/chainsaw-lab/high-severity.json
+Step 3.2: Focus on Specific Attack Techniques
+# Search for lateral movement indicators
+chainsaw hunt ~/chainsaw-lab/logs/ -s ~/chainsaw-lab/sigma/rules/windows/builtin/security/ --output ~/chainsaw-lab/lateral-movement.json
+
+# Look for PowerShell-based attacks
+chainsaw hunt ~/chainsaw-lab/logs/ -s ~/chainsaw-lab/sigma/rules/windows/powershell/ --output ~/chainsaw-lab/powershell-attacks.json
+
+# Analyze WMI-related suspicious activities
+chainsaw hunt ~/chainsaw-lab/logs/ -s ~/chainsaw-lab/sigma/rules/windows/sysmon/ --output ~/chainsaw-lab/wmi-activities.json
+Step 3.3: Create Custom Detection Report
+# Generate comprehensive timeline analysis
+chainsaw hunt ~/chainsaw-lab/logs/ -s ~/chainsaw-lab/sigma/rules/ --json --full --output ~/chainsaw-lab/timeline-analysis.json
+
+# Create summary report
+cat > ~/chainsaw-lab/generate-report.py << 'EOF'
+#!/usr/bin/env python3
+import json
+import sys
+from collections import Counter
+
+def analyze_detections(filename):
+    try:
+        with open(filename, 'r') as f:
+            data = json.load(f)
+        
+        if not isinstance(data, list):
+            data = [data]
+        
+        print("=== CHAINSAW SIGMA DETECTION SUMMARY ===\n")
+        
+        # Count detections by rule
+        rule_counts = Counter()
+        severity_counts = Counter()
+        
+        for detection in data:
+            if 'detections' in detection:
+                for det in detection['detections']:
+                    rule_name = det.get('rule', 'Unknown Rule')
+                    severity = det.get('level', 'unknown')
+                    rule_counts[rule_name] += 1
+                    severity_counts[severity] += 1
+        
+        print(f"Total Detections: {sum(rule_counts.values())}")
+        print(f"Unique Rules Triggered: {len(rule_counts)}\n")
+        
+        print("Top 5 Most Triggered Rules:")
+        for rule, count in rule_counts.most_common(5):
+            print(f"  - {rule}: {count} detections")
+        
+        print(f"\nDetections by Severity:")
+        for severity, count in severity_counts.items():
+            print(f"  - {severity.upper()}: {count}")
+            
+    except Exception as e:
+        print(f"Error analyzing file: {e}")
+
+if __name__ == "__main__":
+    analyze_detections("~/chainsaw-lab/timeline-analysis.json")
+EOF
+
+# Make script executable and run
+chmod +x ~/chainsaw-lab/generate-report.py
+python3 ~/chainsaw-lab/generate-report.py
+Step 3.4: Investigate Specific Incidents
+# Search for authentication failures
+chainsaw search ~/chainsaw-lab/logs/ -e 4625 --output ~/chainsaw-lab/auth-failures.json
+
+# Look for process creation events
+chainsaw search ~/chainsaw-lab/logs/ -e 4688 --output ~/chainsaw-lab/process-creation.json
+
+# Display timeline of events
+chainsaw dump ~/chainsaw-lab/logs/ --csv | head -20
+Step 3.5: Validate Detection Accuracy
+# Create validation script
+cat > ~/chainsaw-lab/validate-detections.sh << 'EOF'
+#!/bin/bash
+
+echo "=== DETECTION VALIDATION REPORT ==="
+echo "Timestamp: $(date)"
+echo
+
+# Count different types of detections
+echo "Detection Statistics:"
+echo "- Total log entries processed: $(chainsaw dump ~/chainsaw-lab/logs/ --csv | wc -l)"
+echo "- Sigma rule matches: $(grep -c 'detection' ~/chainsaw-lab/results.json 2>/dev/null || echo '0')"
+echo "- High severity alerts: $(grep -c 'high' ~/chainsaw-lab/high-severity.json 2>/dev/null || echo '0')"
+
+echo
+echo "File Analysis:"
+for file in ~/chainsaw-lab/logs/*.evtx; do
+    if [ -f "$file" ]; then
+        filename=$(basename "$file")
+        size=$(du -h "$file" | cut -f1)
+        echo "- $filename: $size"
+    fi
+done
+
+echo
+echo "Most Common Event IDs:"
+chainsaw dump ~/chainsaw-lab/logs/ --csv | cut -d',' -f3 | sort | uniq -c | sort -nr | head -5
+EOF
+
+chmod +x ~/chainsaw-lab/validate-detections.sh
+./~/chainsaw-lab/validate-detections.sh
+Key Findings and Analysis
+Understanding Detection Results
+Critical Detection Categories:
+
+Authentication Anomalies: Failed login attempts and suspicious account activities
+Process Execution: Unusual command-line executions and PowerShell usage
+Lateral Movement: Network authentication and remote access patterns
+Persistence Mechanisms: Registry modifications and scheduled task creation
+Common Sigma Rule Patterns
+# View sample Sigma rule structure
+cat ~/chainsaw-lab/custom-rules/proc_creation_win_susp_powershell_empire.yml | head -20
+Rule Components:
+
+Detection Logic: Defines what patterns to match
+False Positive Filters: Reduces noise from legitimate activities
+Severity Levels: Prioritizes alerts based on threat level
+MITRE ATT&CK Mapping: Links detections to attack techniques
+Troubleshooting Common Issues
+Issue 1: Chainsaw Not Finding Rules
+# Verify Sigma rules path
+ls -la ~/chainsaw-lab/sigma/rules/windows/
+chainsaw hunt ~/chainsaw-lab/logs/ -s ~/chainsaw-lab/sigma/rules/ --dry-run
+Issue 2: No Detections Generated
+# Check log file format and content
+file ~/chainsaw-lab/logs/*.evtx
+chainsaw dump ~/chainsaw-lab/logs/ | head -10
+Issue 3: JSON Parsing Errors
+# Validate JSON output
+python3 -m json.tool ~/chainsaw-lab/results.json > /dev/null && echo "Valid JSON" || echo "Invalid JSON"
+Conclusion
+In this lab, you successfully implemented Sigma rule-based detection using Chainsaw for Windows event log analysis. You learned to:
+
+Configure Chainsaw as a powerful log analysis tool
+Apply industry-standard Sigma rules for threat detection
+Identify suspicious activities through automated rule matching
+Generate comprehensive security incident reports
+Validate detection accuracy and reduce false positives
+This hands-on experience demonstrates how security analysts use rule-based detection systems to identify threats in enterprise environments. The combination of Chainsaw and Sigma rules provides a scalable approach to security monitoring that can be adapted to various organizational needs and threat landscapes.
+
+Real-World Applications:
+
+SOC Operations: Automated threat detection in security operations centers
+Incident Response: Rapid identification of compromise indicators
+Threat Hunting: Proactive search for advanced persistent threats
+Compliance Monitoring: Ensuring adherence to security policies and regulations
