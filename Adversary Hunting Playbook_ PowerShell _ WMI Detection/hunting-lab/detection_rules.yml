@@ -1,0 +1,39 @@
+title: PowerShell Malicious Activity Detection
+id: ps-malicious-001
+description: Detects suspicious PowerShell execution patterns
+logsource:
+  product: windows
+  service: powershell
+detection:
+  selection:
+    EventID: [4103, 4104]
+    CommandLine|contains:
+      - 'Invoke-WebRequest'
+      - 'DownloadString'
+      - 'ExecutionPolicy Bypass'
+      - 'WindowStyle Hidden'
+      - 'EncodedCommand'
+  condition: selection
+falsepositives:
+  - Legitimate administrative scripts
+level: high
+
+---
+title: WMI Reconnaissance Detection
+id: wmi-recon-001
+description: Detects WMI queries used for reconnaissance
+logsource:
+  product: windows
+  service: wmi
+detection:
+  selection:
+    EventID: [5857, 5858]
+    Query|contains:
+      - 'Win32_Process'
+      - 'Win32_Service'
+      - 'Win32_LoggedOnUser'
+      - 'Win32_NetworkAdapterConfiguration'
+  condition: selection
+falsepositives:
+  - System monitoring tools
+level: medium
