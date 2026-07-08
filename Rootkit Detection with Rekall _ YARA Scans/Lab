@@ -1,0 +1,317 @@
+Rootkit Detection with Rekall + YARA Scans
+Objectives
+By completing this lab, you will:
+
+Install and configure Rekall memory forensics framework
+Create and deploy YARA rules for rootkit signature detection
+Analyze memory dumps to identify potential rootkit activity
+Interpret forensic results to determine system compromise indicators
+Prerequisites
+Basic Linux command-line knowledge
+Understanding of memory forensics concepts
+Familiarity with malware analysis principles
+Knowledge of system processes and kernel structures
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated environment. The provided Linux machine is bare metal with no pre-installed tools, so you will install all required software during the lab exercises.
+
+Task 1: Set up Rekall for Rootkit Detection
+Subtask 1.1: Install Dependencies and Rekall
+Update system and install required packages:
+
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y python3 python3-pip git build-essential python3-dev libssl-dev
+Install Rekall framework:
+
+pip3 install --user rekall-agent rekall
+echo 'export PATH=$PATH:~/.local/bin' >> ~/.bashrc
+source ~/.bashrc
+Verify installation:
+
+rekall --version
+Subtask 1.2: Create Sample Memory Dump
+Generate a memory dump for analysis:
+
+sudo apt install -y linux-crashdump makedumpfile crash kexec-tools
+sudo dd if=/proc/kcore of=memory_sample.raw bs=1M count=100
+Create a smaller test dump from /proc/kcore:
+
+sudo head -c 50M /proc/kcore > test_memory.raw
+Subtask 1.3: Configure Rekall Profile
+Download Linux profiles:
+
+mkdir -p ~/rekall_profiles
+cd ~/rekall_profiles
+wget https://github.com/google/rekall-profiles/archive/master.zip
+unzip master.zip
+Task 2: Run YARA Rules to Find Rootkit Signatures
+Subtask 2.1: Install YARA
+Install YARA engine:
+
+sudo apt install -y yara libyara-dev python3-yara
+pip3 install --user yara-python
+Subtask 2.2: Create Rootkit Detection YARA Rules
+Create rootkit signature rules:
+
+mkdir -p ~/yara_rules
+cd ~/yara_rules
+Create rootkit_signatures.yar:
+
+cat > rootkit_signatures.yar << 'EOF'
+rule Generic_Rootkit_Strings
+{
+    meta:
+        description = "Generic rootkit string patterns"
+        author = "Lab Exercise"
+        
+    strings:
+        $hide1 = "hide_process"
+        $hide2 = "rootkit"
+        $hide3 = "backdoor"
+        $syscall1 = "sys_call_table"
+        $syscall2 = "original_sys_"
+        $hook1 = "hook_"
+        $hook2 = "unhook_"
+        
+    condition:
+        any of them
+}
+
+rule Kernel_Module_Rootkit
+{
+    meta:
+        description = "Suspicious kernel module patterns"
+        
+    strings:
+        $mod1 = "init_module"
+        $mod2 = "cleanup_module"
+        $hide = { 48 89 ?? ?? ?? ?? ?? 48 8B ?? ?? ?? ?? ?? }
+        
+    condition:
+        all of ($mod*) and $hide
+}
+
+rule Process_Hiding_Rootkit
+{
+    meta:
+        description = "Process hiding techniques"
+        
+    strings:
+        $proc1 = "/proc/"
+        $proc2 = "task_struct"
+        $hide = "list_del"
+        
+    condition:
+        all of them
+}
+EOF
+Create advanced_rootkit.yar:
+
+cat > advanced_rootkit.yar << 'EOF'
+rule Network_Rootkit
+{
+    meta:
+        description = "Network-based rootkit indicators"
+        
+    strings:
+        $net1 = "netfilter_ops"
+        $net2 = "packet_type"
+        $net3 = "sk_buff"
+        $hide = "NF_STOLEN"
+        
+    condition:
+        2 of ($net*) and $hide
+}
+
+rule File_Hiding_Rootkit
+{
+    meta:
+        description = "File system hiding rootkit"
+        
+    strings:
+        $vfs1 = "vfs_readdir"
+        $vfs2 = "filldir"
+        $hide = "d_name"
+        
+    condition:
+        all of them
+}
+EOF
+Subtask 2.3: Test YARA Rules
+Test rules on memory dump:
+
+yara rootkit_signatures.yar ~/test_memory.raw
+yara advanced_rootkit.yar ~/test_memory.raw
+Task 3: Analyze Results for Potential Rootkit Activity
+Subtask 3.1: Perform Rekall Memory Analysis
+Run basic Rekall analysis:
+
+cd ~
+rekall -f test_memory.raw --profile Linux64 pslist
+Check for hidden processes:
+
+rekall -f test_memory.raw --profile Linux64 psscan
+Analyze loaded modules:
+
+rekall -f test_memory.raw --profile Linux64 lsmod
+Subtask 3.2: Combine Rekall with YARA
+Create analysis script rootkit_scan.py:
+
+#!/usr/bin/env python3
+
+import subprocess
+import sys
+import os
+
+def run_yara_scan(memory_file, rule_file):
+    """Run YARA scan on memory dump"""
+    print(f"Running YARA scan with {rule_file}...")
+    try:
+        result = subprocess.run(['yara', rule_file, memory_file], 
+                              capture_output=True, text=True)
+        if result.stdout:
+            print("YARA Matches Found:")
+            print(result.stdout)
+            return True
+        else:
+            print("No YARA matches found.")
+            return False
+    except Exception as e:
+        print(f"YARA scan error: {e}")
+        return False
+
+def run_rekall_analysis(memory_file):
+    """Run Rekall analysis commands"""
+    commands = [
+        ['rekall', '-f', memory_file, '--profile', 'Linux64', 'pslist'],
+        ['rekall', '-f', memory_file, '--profile', 'Linux64', 'lsmod'],
+        ['rekall', '-f', memory_file, '--profile', 'Linux64', 'netstat']
+    ]
+    
+    for cmd in commands:
+        print(f"\nRunning: {' '.join(cmd)}")
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if result.stdout:
+                print(result.stdout[:500] + "..." if len(result.stdout) > 500 else result.stdout)
+        except Exception as e:
+            print(f"Command failed: {e}")
+
+def main():
+    memory_file = "test_memory.raw"
+    rule_files = ["yara_rules/rootkit_signatures.yar", "yara_rules/advanced_rootkit.yar"]
+    
+    print("=== Rootkit Detection Analysis ===\n")
+    
+    # Run YARA scans
+    detections = 0
+    for rule_file in rule_files:
+        if os.path.exists(rule_file):
+            if run_yara_scan(memory_file, rule_file):
+                detections += 1
+        else:
+            print(f"Rule file not found: {rule_file}")
+    
+    print(f"\n=== Rekall Memory Analysis ===")
+    run_rekall_analysis(memory_file)
+    
+    print(f"\n=== Analysis Summary ===")
+    print(f"YARA rule files with detections: {detections}")
+    print("Review output above for potential rootkit indicators.")
+
+if __name__ == "__main__":
+    main()
+Make script executable and run:
+
+chmod +x rootkit_scan.py
+python3 rootkit_scan.py
+Subtask 3.3: Create Detection Report
+Generate comprehensive analysis report:
+
+cat > generate_report.sh << 'EOF'
+#!/bin/bash
+
+MEMORY_FILE="test_memory.raw"
+REPORT_FILE="rootkit_analysis_report.txt"
+
+echo "=== Rootkit Detection Report ===" > $REPORT_FILE
+echo "Generated: $(date)" >> $REPORT_FILE
+echo "Memory File: $MEMORY_FILE" >> $REPORT_FILE
+echo "" >> $REPORT_FILE
+
+echo "=== YARA Scan Results ===" >> $REPORT_FILE
+for rule in yara_rules/*.yar; do
+    echo "Rule: $rule" >> $REPORT_FILE
+    yara "$rule" "$MEMORY_FILE" >> $REPORT_FILE 2>&1
+    echo "" >> $REPORT_FILE
+done
+
+echo "=== Process Analysis ===" >> $REPORT_FILE
+rekall -f "$MEMORY_FILE" --profile Linux64 pslist >> $REPORT_FILE 2>&1
+
+echo "=== Module Analysis ===" >> $REPORT_FILE  
+rekall -f "$MEMORY_FILE" --profile Linux64 lsmod >> $REPORT_FILE 2>&1
+
+echo "Report generated: $REPORT_FILE"
+EOF
+
+chmod +x generate_report.sh
+./generate_report.sh
+View the report:
+
+cat rootkit_analysis_report.txt
+Subtask 3.4: Interpret Results
+Create result interpretation guide:
+
+cat > interpret_results.py << 'EOF'
+#!/usr/bin/env python3
+
+def interpret_findings():
+    print("=== Rootkit Detection Interpretation Guide ===\n")
+    
+    indicators = {
+        "High Risk": [
+            "YARA rules matching rootkit signatures",
+            "Hidden processes found by psscan but not pslist", 
+            "Suspicious kernel modules with no file backing",
+            "Modified system call table entries"
+        ],
+        "Medium Risk": [
+            "Unusual network connections",
+            "Processes with suspicious names or paths",
+            "Modified file system operations",
+            "Unexpected kernel hooks"
+        ],
+        "Low Risk": [
+            "Standard system processes",
+            "Known legitimate kernel modules",
+            "Normal network activity",
+            "Expected system calls"
+        ]
+    }
+    
+    for risk_level, signs in indicators.items():
+        print(f"{risk_level} Indicators:")
+        for sign in signs:
+            print(f"  • {sign}")
+        print()
+    
+    print("Analysis Steps:")
+    print("1. Check YARA matches against known rootkit signatures")
+    print("2. Compare process lists for hidden processes")
+    print("3. Verify kernel module legitimacy")
+    print("4. Examine network connections for backdoors")
+    print("5. Cross-reference findings with threat intelligence")
+
+if __name__ == "__main__":
+    interpret_findings()
+EOF
+
+python3 interpret_results.py
+Conclusion
+You have successfully completed rootkit detection using Rekall and YARA scans. This lab demonstrated how to:
+
+Set up Rekall memory forensics framework for advanced analysis
+Create and deploy YARA rules targeting rootkit signatures
+Perform comprehensive memory analysis to identify hidden threats
+Combine multiple detection techniques for thorough investigation
+These skills are essential for incident response, malware analysis, and digital forensics. The combination of memory forensics and signature-based detection provides a powerful approach to identifying sophisticated rootkits that attempt to hide their presence in system memory. Understanding these techniques enables security professionals to detect advanced persistent threats and maintain system integrity.
