@@ -1,0 +1,302 @@
+Detect Persistence via Autoruns & Sysinternals Tools
+Objectives
+By completing this lab, you will:
+
+Install and configure Linux-based persistence detection tools
+Identify common persistence mechanisms on Linux systems
+Analyze suspicious autostart entries and processes
+Use open-source alternatives to Sysinternals tools for persistence investigation
+Document and remediate persistence threats
+Prerequisites
+Basic Linux command-line knowledge
+Understanding of system processes and services
+Familiarity with file permissions and system directories
+Knowledge of common malware persistence techniques
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated Linux machine. The provided system is bare metal with no pre-installed tools, so you will install all required tools during the lab exercises.
+
+Task 1: Install Detection Tools and Create Test Environment
+Subtask 1.1: Install Required Tools
+# Update system packages
+sudo apt update && sudo apt upgrade -y
+
+# Install essential tools
+sudo apt install -y htop psmisc lsof chkrootkit rkhunter unhide
+
+# Install additional monitoring tools
+sudo apt install -y sysstat auditd aide
+
+# Install development tools for custom scripts
+sudo apt install -y python3 python3-pip git
+Subtask 1.2: Create Simulated Persistence Mechanisms
+# Create test directories
+mkdir -p ~/lab6_persistence
+cd ~/lab6_persistence
+
+# Create a suspicious startup script
+cat << 'EOF' > suspicious_startup.sh
+#!/bin/bash
+# Simulated malicious persistence script
+echo "$(date): Suspicious process started" >> /tmp/malware.log
+sleep 3600 &
+EOF
+
+chmod +x suspicious_startup.sh
+
+# Create a fake service file
+sudo tee /etc/systemd/system/fake-service.service > /dev/null << 'EOF'
+[Unit]
+Description=Fake Background Service
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/bin/bash -c 'sleep 3600 &'
+Restart=always
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable the fake service
+sudo systemctl enable fake-service.service
+Subtask 1.3: Create Cron-based Persistence
+# Add suspicious cron job
+echo "*/5 * * * * /bin/bash -c 'echo \$(date) >> /tmp/cron_persistence.log'" | crontab -
+
+# Create system-wide cron job
+sudo tee /etc/cron.d/suspicious_task > /dev/null << 'EOF'
+# Suspicious system task
+*/10 * * * * root /bin/bash -c 'touch /tmp/system_persistence'
+EOF
+Task 2: Detect Persistence Mechanisms Using Linux Tools
+Subtask 2.1: Analyze System Services and Processes
+# List all enabled services
+systemctl list-unit-files --state=enabled > ~/lab6_persistence/enabled_services.txt
+
+# Check for suspicious services
+systemctl status fake-service.service
+
+# List all running processes with full command lines
+ps auxf > ~/lab6_persistence/running_processes.txt
+
+# Check for processes without controlling terminal
+ps -eo pid,ppid,cmd,comm | grep -v "?"
+Subtask 2.2: Examine Autostart Locations
+# Create autostart analysis script
+cat << 'EOF' > autostart_analyzer.py
+#!/usr/bin/env python3
+import os
+import glob
+import subprocess
+
+def check_autostart_locations():
+    locations = [
+        '/etc/systemd/system/',
+        '/lib/systemd/system/',
+        '/usr/lib/systemd/system/',
+        '/etc/init.d/',
+        '/etc/rc*.d/',
+        '/etc/cron.d/',
+        '/var/spool/cron/crontabs/',
+        '/etc/crontab'
+    ]
+    
+    print("=== AUTOSTART ANALYSIS ===")
+    for location in locations:
+        if os.path.exists(location):
+            print(f"\n[+] Checking: {location}")
+            if os.path.isfile(location):
+                try:
+                    with open(location, 'r') as f:
+                        content = f.read()
+                        if content.strip():
+                            print(f"Content found in {location}")
+                except:
+                    pass
+            else:
+                files = glob.glob(f"{location}*")
+                for file in files[:10]:  # Limit output
+                    if os.path.isfile(file):
+                        print(f"  - {file}")
+
+def check_suspicious_processes():
+    print("\n=== SUSPICIOUS PROCESS ANALYSIS ===")
+    try:
+        result = subprocess.run(['ps', 'auxf'], capture_output=True, text=True)
+        lines = result.stdout.split('\n')
+        
+        suspicious_keywords = ['tmp', 'dev/shm', 'var/tmp', 'hidden']
+        for line in lines:
+            for keyword in suspicious_keywords:
+                if keyword in line.lower():
+                    print(f"[!] Suspicious: {line.strip()}")
+                    break
+    except:
+        print("Error analyzing processes")
+
+if __name__ == "__main__":
+    check_autostart_locations()
+    check_suspicious_processes()
+EOF
+
+chmod +x autostart_analyzer.py
+python3 autostart_analyzer.py > ~/lab6_persistence/autostart_analysis.txt
+Subtask 2.3: Check Cron Jobs and Scheduled Tasks
+# List user cron jobs
+crontab -l > ~/lab6_persistence/user_cron.txt 2>/dev/null || echo "No user crontab" > ~/lab6_persistence/user_cron.txt
+
+# List system cron jobs
+sudo ls -la /etc/cron.d/ > ~/lab6_persistence/system_cron.txt
+sudo cat /etc/crontab >> ~/lab6_persistence/system_cron.txt
+
+# Check for at jobs
+atq > ~/lab6_persistence/at_jobs.txt 2>/dev/null || echo "No at jobs" > ~/lab6_persistence/at_jobs.txt
+
+# Analyze cron logs
+sudo tail -50 /var/log/cron.log > ~/lab6_persistence/cron_logs.txt 2>/dev/null || echo "No cron logs available" > ~/lab6_persistence/cron_logs.txt
+Task 3: Advanced Persistence Investigation
+Subtask 3.1: Use Rootkit Detection Tools
+# Run chkrootkit scan
+sudo chkrootkit > ~/lab6_persistence/chkrootkit_results.txt
+
+# Run rkhunter scan
+sudo rkhunter --update
+sudo rkhunter --check --sk > ~/lab6_persistence/rkhunter_results.txt
+
+# Check for hidden processes
+sudo unhide proc > ~/lab6_persistence/unhide_results.txt
+Subtask 3.2: Network-based Persistence Detection
+# Check listening ports and associated processes
+sudo netstat -tulpn > ~/lab6_persistence/listening_ports.txt
+
+# Check established connections
+sudo netstat -tupln > ~/lab6_persistence/connections.txt
+
+# Use lsof to check network connections
+sudo lsof -i > ~/lab6_persistence/lsof_network.txt
+Subtask 3.3: File System Analysis
+# Create file integrity checker script
+cat << 'EOF' > file_integrity_check.sh
+#!/bin/bash
+
+echo "=== FILE INTEGRITY ANALYSIS ==="
+
+# Check for recently modified system files
+echo "[+] Recently modified system files (last 7 days):"
+find /etc /usr/bin /usr/sbin -type f -mtime -7 2>/dev/null | head -20
+
+# Check for SUID/SGID files
+echo -e "\n[+] SUID/SGID files:"
+find / -type f \( -perm -4000 -o -perm -2000 \) 2>/dev/null | head -20
+
+# Check for world-writable files
+echo -e "\n[+] World-writable files:"
+find / -type f -perm -002 2>/dev/null | head -10
+
+# Check for files in tmp directories
+echo -e "\n[+] Files in temporary directories:"
+find /tmp /var/tmp /dev/shm -type f 2>/dev/null | head -10
+
+# Check for hidden files in unusual locations
+echo -e "\n[+] Hidden files in system directories:"
+find /etc /usr /var -name ".*" -type f 2>/dev/null | head -10
+EOF
+
+chmod +x file_integrity_check.sh
+./file_integrity_check.sh > ~/lab6_persistence/file_integrity.txt
+Task 4: Analyze and Document Findings
+Subtask 4.1: Create Comprehensive Report
+# Generate summary report
+cat << 'EOF' > generate_report.py
+#!/usr/bin/env python3
+import os
+import datetime
+
+def generate_persistence_report():
+    report_file = "persistence_investigation_report.txt"
+    
+    with open(report_file, 'w') as f:
+        f.write("PERSISTENCE INVESTIGATION REPORT\n")
+        f.write("=" * 50 + "\n")
+        f.write(f"Generated: {datetime.datetime.now()}\n\n")
+        
+        # Read and summarize findings
+        files_to_analyze = [
+            ("enabled_services.txt", "ENABLED SERVICES"),
+            ("user_cron.txt", "USER CRON JOBS"),
+            ("system_cron.txt", "SYSTEM CRON JOBS"),
+            ("autostart_analysis.txt", "AUTOSTART ANALYSIS"),
+            ("chkrootkit_results.txt", "ROOTKIT SCAN RESULTS"),
+            ("listening_ports.txt", "NETWORK LISTENERS"),
+            ("file_integrity.txt", "FILE INTEGRITY CHECK")
+        ]
+        
+        for filename, section_title in files_to_analyze:
+            if os.path.exists(filename):
+                f.write(f"\n{section_title}\n")
+                f.write("-" * len(section_title) + "\n")
+                try:
+                    with open(filename, 'r') as source:
+                        content = source.read()
+                        # Limit content to prevent huge reports
+                        if len(content) > 2000:
+                            f.write(content[:2000] + "\n... (truncated)\n")
+                        else:
+                            f.write(content)
+                except:
+                    f.write("Error reading file\n")
+        
+        # Add recommendations
+        f.write("\n\nRECOMMendations\n")
+        f.write("-" * 15 + "\n")
+        f.write("1. Remove suspicious services: sudo systemctl disable fake-service.service\n")
+        f.write("2. Clean cron jobs: crontab -r (for user), edit /etc/cron.d/ (for system)\n")
+        f.write("3. Monitor /tmp and /var/tmp for suspicious files\n")
+        f.write("4. Regular rootkit scans with chkrootkit and rkhunter\n")
+        f.write("5. Implement file integrity monitoring with AIDE\n")
+
+if __name__ == "__main__":
+    generate_persistence_report()
+    print("Report generated: persistence_investigation_report.txt")
+
+EOF
+
+cd ~/lab6_persistence
+python3 generate_report.py
+Subtask 4.2: Clean Up Test Environment
+# Remove test persistence mechanisms
+sudo systemctl stop fake-service.service
+sudo systemctl disable fake-service.service
+sudo rm /etc/systemd/system/fake-service.service
+
+# Remove cron jobs
+crontab -r 2>/dev/null || echo "No user crontab to remove"
+sudo rm -f /etc/cron.d/suspicious_task
+
+# Clean up test files
+rm -f /tmp/malware.log /tmp/cron_persistence.log /tmp/system_persistence
+
+# Reload systemd
+sudo systemctl daemon-reload
+Subtask 4.3: Verify Cleanup
+# Verify services are removed
+systemctl list-unit-files | grep fake-service || echo "Fake service successfully removed"
+
+# Verify cron jobs are removed
+crontab -l 2>/dev/null || echo "User cron jobs cleared"
+sudo ls /etc/cron.d/ | grep suspicious || echo "System cron jobs cleared"
+
+# Display final report
+echo "=== INVESTIGATION COMPLETE ==="
+echo "Report location: ~/lab6_persistence/persistence_investigation_report.txt"
+ls -la ~/lab6_persistence/
+Conclusion
+You have successfully completed a comprehensive persistence investigation using open-source Linux tools. This lab demonstrated how to:
+
+Identify persistence mechanisms through service analysis, cron job examination, and process monitoring
+Use detection tools like chkrootkit, rkhunter, and custom scripts to uncover hidden threats
+Analyze system integrity by examining file modifications, permissions, and network connections
+Document findings in a structured report for incident response
+These skills are essential for cybersecurity professionals conducting forensic investigations and maintaining system security. The techniques learned here apply to real-world scenarios where attackers attempt to maintain persistent access to compromised systems. Regular application of these detection methods helps identify and eliminate advanced persistent threats before they can cause significant damage.
