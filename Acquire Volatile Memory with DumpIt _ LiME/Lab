@@ -1,0 +1,176 @@
+Acquire Volatile Memory with DumpIt & LiME
+Objectives
+By completing this lab, you will:
+
+Acquire volatile memory from Windows and Linux systems using DumpIt and LiME
+Set up and execute memory acquisition tools on a single Linux machine
+Analyze memory dumps to identify system artifacts and evidence
+Understand the importance of volatile memory in digital forensics
+Prerequisites
+Basic Linux command-line knowledge
+Understanding of file systems and directory navigation
+Familiarity with compilation processes (make, gcc)
+Root/sudo access on the target system
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated bare metal Linux machine. No pre-installed tools are provided, so you will install all required software during the lab exercises.
+
+Task 1: Set up and Run DumpIt for Windows Memory Acquisition
+Subtask 1.1: Install Wine for Windows Compatibility
+sudo apt update
+sudo apt install -y wine winetricks
+Subtask 1.2: Download and Configure DumpIt
+# Create working directory
+mkdir ~/memory-lab
+cd ~/memory-lab
+
+# Download DumpIt (using wget with a sample URL - replace with actual source)
+wget -O dumpit.exe "https://download.moonsols.com/application/files/3815/8737/3441/DumpIt.exe"
+
+# Make executable
+chmod +x dumpit.exe
+Subtask 1.3: Create Test Windows Environment
+# Initialize Wine prefix
+winecfg
+
+# Create a sample memory scenario
+wine cmd /c "echo Creating test environment for memory acquisition"
+Subtask 1.4: Execute DumpIt Memory Acquisition
+# Run DumpIt through Wine
+wine dumpit.exe
+
+# Alternative command-line execution
+wine dumpit.exe /output memory_dump.dmp /quiet
+Subtask 1.5: Verify Windows Memory Dump
+# Check dump file creation
+ls -lh *.dmp
+
+# Display basic file information
+file memory_dump.dmp
+hexdump -C memory_dump.dmp | head -20
+Task 2: Use LiME for Linux Memory Acquisition
+Subtask 2.1: Install Development Dependencies
+sudo apt install -y build-essential linux-headers-$(uname -r) git
+Subtask 2.2: Download and Compile LiME
+# Clone LiME repository
+git clone https://github.com/504ensicsLabs/LiME.git
+cd LiME/src
+
+# Compile LiME kernel module
+make
+Subtask 2.3: Load LiME Module and Acquire Memory
+# Load the kernel module and create memory dump
+sudo insmod lime-$(uname -r).ko "path=../linux_memory.lime format=lime"
+
+# Verify module loaded
+lsmod | grep lime
+
+# Check dump file creation
+ls -lh ../linux_memory.lime
+Subtask 2.4: Alternative LiME Acquisition Methods
+# Raw format acquisition
+sudo insmod lime-$(uname -r).ko "path=../linux_memory_raw.dd format=raw"
+
+# Network-based acquisition (TCP)
+sudo insmod lime-$(uname -r).ko "path=tcp:4444 format=lime"
+Subtask 2.5: Unload LiME Module
+# Remove the kernel module
+sudo rmmod lime
+
+# Verify removal
+lsmod | grep lime
+Task 3: Analyze Memory Dumps for Artifacts
+Subtask 3.1: Install Volatility Framework
+# Install Python and pip
+sudo apt install -y python3 python3-pip
+
+# Install Volatility3
+pip3 install volatility3
+
+# Verify installation
+vol3 --help
+Subtask 3.2: Analyze Linux Memory Dump
+# Move to LiME directory
+cd ~/memory-lab/LiME
+
+# Basic system information
+vol3 -f linux_memory.lime linux.info
+
+# List running processes
+vol3 -f linux_memory.lime linux.pslist
+
+# Show network connections
+vol3 -f linux_memory.lime linux.netstat
+Subtask 3.3: Extract Process Information
+# Process tree view
+vol3 -f linux_memory.lime linux.pstree
+
+# Command line arguments
+vol3 -f linux_memory.lime linux.cmdline
+
+# Open files by processes
+vol3 -f linux_memory.lime linux.lsof
+Subtask 3.4: Memory Strings Analysis
+# Extract strings from memory dump
+strings linux_memory.lime > memory_strings.txt
+
+# Search for specific patterns
+grep -i "password" memory_strings.txt
+grep -i "http" memory_strings.txt | head -10
+grep -E "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}" memory_strings.txt | head -10
+Subtask 3.5: Compare Memory Acquisition Methods
+# Compare file sizes
+ls -lh linux_memory.lime linux_memory_raw.dd
+
+# Basic file analysis
+file linux_memory.lime
+file linux_memory_raw.dd
+
+# Create comparison report
+echo "Memory Acquisition Comparison Report" > analysis_report.txt
+echo "====================================" >> analysis_report.txt
+echo "LiME Format Size: $(ls -lh linux_memory.lime | awk '{print $5}')" >> analysis_report.txt
+echo "Raw Format Size: $(ls -lh linux_memory_raw.dd | awk '{print $5}')" >> analysis_report.txt
+echo "Acquisition Time: $(date)" >> analysis_report.txt
+Subtask 3.6: Create Memory Timeline
+# Generate timeline from memory
+vol3 -f linux_memory.lime linux.pslist --output-file process_timeline.csv
+
+# Display timeline summary
+head -20 process_timeline.csv
+Verification and Cleanup
+Verify Lab Completion
+# Check all created files
+ls -la ~/memory-lab/
+ls -la ~/memory-lab/LiME/
+
+# Verify memory dumps exist
+test -f ~/memory-lab/memory_dump.dmp && echo "Windows dump: SUCCESS" || echo "Windows dump: FAILED"
+test -f ~/memory-lab/LiME/linux_memory.lime && echo "Linux dump: SUCCESS" || echo "Linux dump: FAILED"
+
+# Display final statistics
+echo "Lab Completion Summary:"
+echo "======================"
+wc -l memory_strings.txt
+wc -l analysis_report.txt
+Cleanup (Optional)
+# Remove large memory dumps if needed
+# rm ~/memory-lab/LiME/linux_memory.lime
+# rm ~/memory-lab/LiME/linux_memory_raw.dd
+# rm ~/memory-lab/memory_dump.dmp
+Troubleshooting
+LiME compilation fails: Ensure kernel headers match your running kernel version
+
+uname -r
+dpkg -l | grep linux-headers
+Wine issues with DumpIt: Configure Wine properly
+
+winecfg
+# Set Windows version to Windows 10
+Volatility analysis errors: Verify memory dump format and file integrity
+
+file linux_memory.lime
+vol3 -f linux_memory.lime linux.check
+Conclusion
+You have successfully completed volatile memory acquisition using both DumpIt for Windows environments and LiME for Linux systems. This lab demonstrated critical digital forensics skills including memory dump creation, analysis techniques, and artifact extraction. These capabilities are essential for incident response, malware analysis, and forensic investigations where volatile memory contains crucial evidence that would be lost upon system shutdown.
+
+The hands-on experience with both tools provides practical knowledge for real-world forensic scenarios where memory acquisition is time-critical and requires reliable, proven methodologies.
