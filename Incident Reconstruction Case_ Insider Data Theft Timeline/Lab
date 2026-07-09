@@ -1,0 +1,443 @@
+Incident Reconstruction Case: Insider Data Theft Timeline
+Learning Objectives
+By completing this lab, you will:
+
+Reconstruct an insider data theft incident using timeline analysis
+Build comprehensive timelines from registry, file system, and event logs
+Identify evidence patterns indicating insider data theft
+Correlate multiple data sources to establish incident chronology
+Prerequisites
+Basic understanding of Linux command line
+Familiarity with file system concepts
+Knowledge of log file structures
+Understanding of digital forensics principles
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Click Start Lab to access your dedicated machine. The provided Linux machine is bare metal with no pre-installed tools, so you will install all required tools during the lab.
+
+Task 1: Build Timeline from Registry, File System, and Event Logs
+Subtask 1.1: Install Required Tools
+Install forensic analysis tools on your Linux machine:
+
+# Update system packages
+sudo apt update && sudo apt upgrade -y
+
+# Install essential forensic tools
+sudo apt install -y sleuthkit autopsy plaso python3-pip git
+
+# Install additional Python tools
+pip3 install plaso-tools timeline-explorer
+
+# Install log analysis tools
+sudo apt install -y logwatch rsyslog-doc
+Subtask 1.2: Create Simulated Evidence Files
+Generate realistic evidence files to simulate an insider threat scenario:
+
+# Create working directory
+mkdir ~/insider_case && cd ~/insider_case
+
+# Create simulated registry-like configuration files
+mkdir -p evidence/registry evidence/filesystem evidence/logs
+
+# Simulate Windows registry entries (converted to Linux format)
+cat > evidence/registry/user_activity.reg << 'EOF'
+[HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\RecentDocs]
+"MRUListEx"=hex:00,00,00,00,01,00,00,00,ff,ff,ff,ff
+"0"="financial_data.xlsx"
+"1"="customer_database.csv"
+"LastAccessed"="2024-01-15 14:30:22"
+
+[HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU]
+"MRUList"="abc"
+"a"="cmd /c copy C:\\sensitive\\*.* E:\\ & exit"
+"b"="powershell -Command \"Get-ChildItem C:\\confidential -Recurse | Copy-Item -Destination E:\\backup\""
+"c"="7z a -p'secret123' stolen_data.7z C:\\sensitive\\*"
+EOF
+
+# Create file system timeline data
+cat > evidence/filesystem/file_timeline.csv << 'EOF'
+Date,Time,Size,Type,Mode,UID,GID,Meta,File Name
+2024-01-15,08:15:32,0,d/drwx,755,1001,1001,2048,/home/employee/Documents
+2024-01-15,09:22:15,2048576,r/rrw-,644,1001,1001,2049,/home/employee/Documents/financial_data.xlsx
+2024-01-15,10:45:33,5242880,r/rrw-,644,1001,1001,2050,/home/employee/Documents/customer_database.csv
+2024-01-15,14:30:22,0,r/rrw-,644,1001,1001,2051,/home/employee/Documents/.bash_history
+2024-01-15,14:31:45,7340032,r/rrw-,644,1001,1001,2052,/media/usb/stolen_data.7z
+2024-01-15,14:32:10,0,r/rrw-,644,1001,1001,2053,/home/employee/.recently-used.xbel
+2024-01-15,15:15:20,1024,r/rrw-,644,1001,1001,2054,/var/log/auth.log
+EOF
+
+# Create system event logs
+cat > evidence/logs/system_events.log << 'EOF'
+Jan 15 08:00:15 workstation login[1234]: USER_LOGIN: user=jsmith tty=tty1 pid=1234
+Jan 15 09:20:30 workstation sudo[2345]: jsmith : TTY=pts/0 ; PWD=/home/jsmith ; USER=root ; COMMAND=/bin/cp /etc/passwd /tmp/
+Jan 15 10:44:55 workstation kernel: [12345.678901] usb 2-1: new high-speed USB device number 3 using ehci-pci
+Jan 15 10:45:02 workstation kernel: [12345.789012] usb-storage 2-1:1.0: USB Mass Storage device detected
+Jan 15 14:30:15 workstation sudo[3456]: jsmith : TTY=pts/0 ; PWD=/home/jsmith ; USER=root ; COMMAND=/bin/mount /dev/sdb1 /media/usb
+Jan 15 14:31:30 workstation cp[4567]: copied '/home/jsmith/Documents/financial_data.xlsx' -> '/media/usb/financial_data.xlsx'
+Jan 15 14:31:45 workstation 7z[5678]: creating archive '/media/usb/stolen_data.7z'
+Jan 15 14:32:00 workstation umount[6789]: /media/usb unmounted
+Jan 15 15:15:18 workstation logout[7890]: USER_LOGOUT: user=jsmith tty=tty1
+EOF
+
+# Create network activity logs
+cat > evidence/logs/network_activity.log << 'EOF'
+2024-01-15 14:33:22 TCP 192.168.1.100:45231 -> 203.0.113.50:443 [SYN] Seq=0 Win=65535 Len=0
+2024-01-15 14:33:25 TCP 203.0.113.50:443 -> 192.168.1.100:45231 [SYN, ACK] Seq=0 Ack=1 Win=8192 Len=0
+2024-01-15 14:33:30 HTTP POST /upload HTTP/1.1 Host: file-sharing-site.com Content-Length: 7340032
+2024-01-15 14:35:45 TCP 192.168.1.100:45231 -> 203.0.113.50:443 [FIN, ACK] Seq=7340033 Ack=1 Win=65535 Len=0
+EOF
+Subtask 1.3: Parse and Analyze Evidence Sources
+Create scripts to parse different evidence sources:
+
+# Create registry analysis script
+cat > analyze_registry.py << 'EOF'
+#!/usr/bin/env python3
+import re
+from datetime import datetime
+
+def parse_registry_timeline(file_path):
+    timeline_events = []
+    
+    with open(file_path, 'r') as f:
+        content = f.read()
+    
+    # Extract recent documents
+    recent_docs = re.findall(r'"(\d+)"="([^"]+)"', content)
+    last_accessed = re.search(r'"LastAccessed"="([^"]+)"', content)
+    
+    if last_accessed:
+        timestamp = last_accessed.group(1)
+        for doc in recent_docs:
+            if doc[0].isdigit():
+                timeline_events.append({
+                    'timestamp': timestamp,
+                    'source': 'Registry',
+                    'event': f'Recent Document Access: {doc[1]}',
+                    'artifact': 'RecentDocs'
+                })
+    
+    # Extract command history
+    commands = re.findall(r'"[a-z]"="([^"]+)"', content)
+    for cmd in commands:
+        timeline_events.append({
+            'timestamp': timestamp,
+            'source': 'Registry',
+            'event': f'Command Executed: {cmd}',
+            'artifact': 'RunMRU'
+        })
+    
+    return timeline_events
+
+# Parse registry data
+events = parse_registry_timeline('evidence/registry/user_activity.reg')
+for event in events:
+    print(f"{event['timestamp']} | {event['source']} | {event['event']}")
+EOF
+
+chmod +x analyze_registry.py
+python3 analyze_registry.py
+Subtask 1.4: Create Master Timeline
+Combine all evidence sources into a unified timeline:
+
+# Create comprehensive timeline analysis script
+cat > create_master_timeline.py << 'EOF'
+#!/usr/bin/env python3
+import csv
+from datetime import datetime
+import re
+
+def parse_filesystem_timeline(file_path):
+    events = []
+    with open(file_path, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            events.append({
+                'timestamp': f"{row['Date']} {row['Time']}",
+                'source': 'FileSystem',
+                'event': f"File Activity: {row['File Name']} ({row['Type']}, {row['Size']} bytes)",
+                'artifact': 'MFT'
+            })
+    return events
+
+def parse_system_logs(file_path):
+    events = []
+    with open(file_path, 'r') as f:
+        for line in f:
+            # Parse syslog format
+            match = re.match(r'(\w+\s+\d+\s+\d+:\d+:\d+)', line)
+            if match:
+                timestamp = match.group(1)
+                events.append({
+                    'timestamp': f"2024-{timestamp}",
+                    'source': 'SystemLog',
+                    'event': line.strip(),
+                    'artifact': 'syslog'
+                })
+    return events
+
+def parse_network_logs(file_path):
+    events = []
+    with open(file_path, 'r') as f:
+        for line in f:
+            if line.strip():
+                parts = line.split(' ', 2)
+                if len(parts) >= 3:
+                    timestamp = f"{parts[0]} {parts[1]}"
+                    events.append({
+                        'timestamp': timestamp,
+                        'source': 'Network',
+                        'event': parts[2].strip(),
+                        'artifact': 'network_log'
+                    })
+    return events
+
+# Collect all events
+all_events = []
+all_events.extend(parse_filesystem_timeline('evidence/filesystem/file_timeline.csv'))
+all_events.extend(parse_system_logs('evidence/logs/system_events.log'))
+all_events.extend(parse_network_logs('evidence/logs/network_activity.log'))
+
+# Sort by timestamp
+all_events.sort(key=lambda x: x['timestamp'])
+
+# Create master timeline
+print("=== MASTER TIMELINE: INSIDER DATA THEFT CASE ===\n")
+print(f"{'Timestamp':<20} | {'Source':<12} | {'Event'}")
+print("-" * 80)
+
+for event in all_events:
+    print(f"{event['timestamp']:<20} | {event['source']:<12} | {event['event'][:50]}...")
+
+# Save to file
+with open('master_timeline.csv', 'w', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=['timestamp', 'source', 'event', 'artifact'])
+    writer.writeheader()
+    writer.writerows(all_events)
+
+print(f"\nMaster timeline saved to: master_timeline.csv")
+EOF
+
+python3 create_master_timeline.py
+Task 2: Identify Evidence of Insider Data Theft
+Subtask 2.1: Analyze Suspicious Patterns
+Create analysis script to identify insider threat indicators:
+
+# Create insider threat detection script
+cat > detect_insider_threats.py << 'EOF'
+#!/usr/bin/env python3
+import csv
+import re
+from collections import defaultdict
+
+def analyze_insider_threats(timeline_file):
+    threat_indicators = {
+        'data_exfiltration': [],
+        'unauthorized_access': [],
+        'suspicious_commands': [],
+        'external_communication': [],
+        'usb_activity': []
+    }
+    
+    with open(timeline_file, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            event = row['event'].lower()
+            
+            # Detect data exfiltration patterns
+            if any(keyword in event for keyword in ['copy', 'stolen_data', 'financial_data', 'customer_database']):
+                threat_indicators['data_exfiltration'].append(row)
+            
+            # Detect unauthorized access
+            if any(keyword in event for keyword in ['sudo', 'root', 'passwd']):
+                threat_indicators['unauthorized_access'].append(row)
+            
+            # Detect suspicious commands
+            if any(keyword in event for keyword in ['7z', 'archive', 'compress', 'encrypt']):
+                threat_indicators['suspicious_commands'].append(row)
+            
+            # Detect external communication
+            if any(keyword in event for keyword in ['upload', 'file-sharing', 'external']):
+                threat_indicators['external_communication'].append(row)
+            
+            # Detect USB activity
+            if any(keyword in event for keyword in ['usb', 'mount', 'removable']):
+                threat_indicators['usb_activity'].append(row)
+    
+    return threat_indicators
+
+# Analyze threats
+threats = analyze_insider_threats('master_timeline.csv')
+
+print("=== INSIDER THREAT ANALYSIS REPORT ===\n")
+
+for category, events in threats.items():
+    if events:
+        print(f"{category.upper().replace('_', ' ')}:")
+        print("-" * 40)
+        for event in events:
+            print(f"  {event['timestamp']} | {event['source']} | {event['event'][:60]}...")
+        print()
+
+# Generate threat score
+total_indicators = sum(len(events) for events in threats.values())
+print(f"THREAT LEVEL: {'HIGH' if total_indicators > 10 else 'MEDIUM' if total_indicators > 5 else 'LOW'}")
+print(f"Total Indicators: {total_indicators}")
+EOF
+
+python3 detect_insider_threats.py
+Subtask 2.2: Create Evidence Summary Report
+Generate comprehensive incident reconstruction report:
+
+# Create incident report generator
+cat > generate_incident_report.py << 'EOF'
+#!/usr/bin/env python3
+import csv
+from datetime import datetime
+
+def generate_incident_report():
+    report = """
+=== INCIDENT RECONSTRUCTION REPORT ===
+Case: Insider Data Theft Investigation
+Date: {current_date}
+
+EXECUTIVE SUMMARY:
+Analysis of digital evidence indicates a systematic data theft operation by an insider.
+The incident occurred on January 15, 2024, involving unauthorized access to sensitive
+financial and customer data, followed by data exfiltration via USB device and external upload.
+
+TIMELINE OF EVENTS:
+""".format(current_date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+    # Read and format timeline
+    with open('master_timeline.csv', 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            report += f"{row['timestamp']} - {row['source']}: {row['event']}\n"
+    
+    report += """
+KEY FINDINGS:
+1. Unauthorized access to sensitive files (financial_data.xlsx, customer_database.csv)
+2. Use of compression tools to package stolen data
+3. USB device insertion and data transfer
+4. External file upload to file-sharing service
+5. Attempt to cover tracks through command history manipulation
+
+EVIDENCE ARTIFACTS:
+- Registry entries showing recent document access
+- File system timestamps indicating data access and copying
+- System logs showing USB device mounting
+- Network logs showing external data transmission
+
+RECOMMENDATIONS:
+1. Implement Data Loss Prevention (DLP) solutions
+2. Monitor USB device usage
+3. Enhance user activity monitoring
+4. Review access controls for sensitive data
+5. Conduct security awareness training
+
+CASE STATUS: Investigation Complete
+THREAT LEVEL: HIGH
+"""
+    
+    return report
+
+# Generate and save report
+report_content = generate_incident_report()
+print(report_content)
+
+with open('incident_reconstruction_report.txt', 'w') as f:
+    f.write(report_content)
+
+print("\nFull report saved to: incident_reconstruction_report.txt")
+EOF
+
+python3 generate_incident_report.py
+Subtask 2.3: Visualize Timeline Data
+Create a simple timeline visualization:
+
+# Install visualization tools
+pip3 install matplotlib pandas
+
+# Create timeline visualization script
+cat > visualize_timeline.py << 'EOF'
+#!/usr/bin/env python3
+import pandas as pd
+import matplotlib.pyplot as plt
+from datetime import datetime
+import matplotlib.dates as mdates
+
+# Read timeline data
+df = pd.read_csv('master_timeline.csv')
+
+# Convert timestamp to datetime
+df['datetime'] = pd.to_datetime(df['timestamp'], errors='coerce')
+df = df.dropna(subset=['datetime'])
+
+# Create timeline plot
+fig, ax = plt.subplots(figsize=(12, 8))
+
+# Color code by source
+colors = {'FileSystem': 'blue', 'SystemLog': 'red', 'Network': 'green', 'Registry': 'orange'}
+for source in df['source'].unique():
+    source_data = df[df['source'] == source]
+    ax.scatter(source_data['datetime'], [source] * len(source_data), 
+              c=colors.get(source, 'gray'), label=source, alpha=0.7, s=50)
+
+# Format plot
+ax.set_xlabel('Timeline')
+ax.set_ylabel('Evidence Source')
+ax.set_title('Insider Data Theft - Evidence Timeline')
+ax.legend()
+ax.grid(True, alpha=0.3)
+
+# Format x-axis
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
+plt.xticks(rotation=45)
+
+plt.tight_layout()
+plt.savefig('timeline_visualization.png', dpi=300, bbox_inches='tight')
+print("Timeline visualization saved to: timeline_visualization.png")
+
+# Create summary statistics
+print("\n=== TIMELINE STATISTICS ===")
+print(f"Total Events: {len(df)}")
+print(f"Time Range: {df['datetime'].min()} to {df['datetime'].max()}")
+print(f"Evidence Sources: {', '.join(df['source'].unique())}")
+print(f"Events by Source:")
+for source in df['source'].unique():
+    count = len(df[df['source'] == source])
+    print(f"  {source}: {count} events")
+EOF
+
+python3 visualize_timeline.py
+Verification and Results
+Verify your analysis results:
+
+# Check generated files
+echo "=== GENERATED FILES ==="
+ls -la *.csv *.txt *.png
+
+# Display key findings
+echo -e "\n=== KEY EVIDENCE SUMMARY ==="
+grep -i "stolen\|financial\|customer\|usb\|upload" master_timeline.csv | head -10
+
+# Show threat indicators count
+echo -e "\n=== THREAT INDICATORS ==="
+python3 -c "
+import csv
+threats = 0
+with open('master_timeline.csv', 'r') as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+        if any(word in row['event'].lower() for word in ['copy', 'stolen', 'usb', 'upload', '7z']):
+            threats += 1
+print(f'Total threat indicators found: {threats}')
+"
+Conclusion
+You have successfully reconstructed an insider data theft incident using timeline analysis. This lab demonstrated how to:
+
+Integrate multiple evidence sources including registry data, file system artifacts, and system logs
+Build comprehensive timelines that reveal the sequence of malicious activities
+Identify insider threat patterns such as unauthorized data access, compression, and exfiltration
+Correlate evidence across different data sources to establish a complete picture of the incident
+These skills are essential for digital forensics investigators and incident response teams dealing with insider threats. Timeline analysis provides the chronological framework needed to understand how security incidents unfold and helps identify the full scope of malicious activities. The techniques learned here apply to real-world investigations where multiple evidence sources must be analyzed to reconstruct complex security incidents.
