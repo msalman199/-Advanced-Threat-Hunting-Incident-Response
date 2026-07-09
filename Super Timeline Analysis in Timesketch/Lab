@@ -1,0 +1,300 @@
+Super Timeline Analysis in Timesketch
+Learning Objectives
+By completing this lab, you will:
+
+Install and configure Timesketch for forensic timeline analysis
+Import multiple forensic timeline data sources into Timesketch
+Correlate events from different sources to identify attack patterns
+Perform advanced super timeline analysis to reconstruct incident timelines
+Prerequisites
+Basic Linux command-line knowledge
+Understanding of digital forensics concepts
+Familiarity with log analysis and timeline reconstruction
+Knowledge of common attack vectors and indicators of compromise
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated environment. The provided Linux machine is bare metal with no pre-installed tools, so you will install all required software during the lab exercises.
+
+Task 1: Install and Configure Timesketch
+Subtask 1.1: Install Dependencies
+# Update system packages
+sudo apt update && sudo apt upgrade -y
+
+# Install Python and pip
+sudo apt install -y python3 python3-pip python3-venv git curl
+
+# Install Docker and Docker Compose
+sudo apt install -y docker.io docker-compose
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -aG docker $USER
+Subtask 1.2: Set Up Timesketch with Docker
+# Create working directory
+mkdir ~/timesketch-lab && cd ~/timesketch-lab
+
+# Clone Timesketch repository
+git clone https://github.com/google/timesketch.git
+cd timesketch
+
+# Create environment file
+cat > .env << EOF
+POSTGRES_USER=timesketch
+POSTGRES_PASSWORD=password
+POSTGRES_DB=timesketch
+ELASTIC_PASSWORD=password
+SECRET_KEY=your-secret-key-here
+TIMESKETCH_USER=admin
+TIMESKETCH_PASSWORD=admin
+EOF
+
+# Start Timesketch services
+sudo docker-compose up -d
+Subtask 1.3: Verify Installation
+# Check running containers
+sudo docker-compose ps
+
+# Wait for services to start (may take 2-3 minutes)
+sleep 180
+
+# Test web interface accessibility
+curl -I http://localhost:5000
+Task 2: Import Timeline Data into Timesketch
+Subtask 2.1: Create Sample Forensic Data
+# Create sample timeline data directory
+mkdir ~/forensic-data && cd ~/forensic-data
+
+# Create Windows Event Log sample (CSV format)
+cat > windows_events.csv << 'EOF'
+datetime,timestamp_desc,source,source_long,message,parser,display_name,tag
+2024-01-15T08:30:15,Content Modification Time,EVT,Windows Event Log,User login successful - Account: john.doe,winevt,Windows Security Event,login
+2024-01-15T08:31:22,Content Modification Time,EVT,Windows Event Log,Process created: cmd.exe,winevt,Windows Security Event,process
+2024-01-15T08:32:45,Content Modification Time,EVT,Windows Event Log,File accessed: C:\sensitive\data.txt,winevt,Windows Security Event,file_access
+2024-01-15T08:35:10,Content Modification Time,EVT,Windows Event Log,Network connection established to 192.168.1.100,winevt,Windows Security Event,network
+2024-01-15T08:36:30,Content Modification Time,EVT,Windows Event Log,Suspicious PowerShell execution detected,winevt,Windows Security Event,suspicious
+EOF
+
+# Create Web Server Access Log sample
+cat > apache_access.csv << 'EOF'
+datetime,timestamp_desc,source,source_long,message,parser,display_name,tag
+2024-01-15T08:29:45,Content Modification Time,LOG,Apache Access Log,GET /admin/login.php - 200,apache,Apache Access Log,web_access
+2024-01-15T08:30:12,Content Modification Time,LOG,Apache Access Log,POST /admin/login.php - 302,apache,Apache Access Log,web_access
+2024-01-15T08:31:55,Content Modification Time,LOG,Apache Access Log,GET /admin/users.php - 200,apache,Apache Access Log,web_access
+2024-01-15T08:33:20,Content Modification Time,LOG,Apache Access Log,POST /admin/upload.php - 200,apache,Apache Access Log,file_upload
+2024-01-15T08:34:15,Content Modification Time,LOG,Apache Access Log,GET /uploads/shell.php - 200,apache,Apache Access Log,suspicious
+EOF
+
+# Create Network Traffic Log sample
+cat > network_traffic.csv << 'EOF'
+datetime,timestamp_desc,source,source_long,message,parser,display_name,tag
+2024-01-15T08:28:30,Content Modification Time,NET,Network Traffic,TCP connection: 192.168.1.50:443 -> 10.0.0.5:52341,network,Network Traffic,network
+2024-01-15T08:30:45,Content Modification Time,NET,Network Traffic,DNS query: malicious-domain.com,network,Network Traffic,dns
+2024-01-15T08:32:10,Content Modification Time,NET,Network Traffic,HTTP POST to /c2/beacon.php,network,Network Traffic,c2
+2024-01-15T08:35:25,Content Modification Time,NET,Network Traffic,Large data transfer: 50MB outbound,network,Network Traffic,exfiltration
+EOF
+Subtask 2.2: Import Data into Timesketch
+# Install Timesketch CLI tools
+pip3 install timesketch-import-client
+
+# Set up API client configuration
+mkdir ~/.timesketchrc
+cat > ~/.timesketchrc << EOF
+[timesketch]
+host_uri = http://localhost:5000
+username = admin
+password = admin
+EOF
+
+# Create a new sketch
+timesketch_importer --sketch_name "Incident Analysis Lab" --timeline_name "Windows Events" ~/forensic-data/windows_events.csv
+
+# Import additional timelines
+timesketch_importer --sketch_name "Incident Analysis Lab" --timeline_name "Apache Logs" ~/forensic-data/apache_access.csv
+
+timesketch_importer --sketch_name "Incident Analysis Lab" --timeline_name "Network Traffic" ~/forensic-data/network_traffic.csv
+Subtask 2.3: Verify Data Import
+# Check import status
+curl -u admin:admin http://localhost:5000/api/v1/sketches/
+
+# List timelines in sketch
+curl -u admin:admin http://localhost:5000/api/v1/sketches/1/timelines/
+Task 3: Correlate Events from Different Sources
+Subtask 3.1: Access Timesketch Web Interface
+Open your web browser and navigate to http://localhost:5000
+
+Login credentials:
+
+Username: admin
+Password: admin
+Subtask 3.2: Create Event Correlations
+# Create correlation rules using API
+curl -X POST -u admin:admin \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Login Correlation",
+    "description": "Correlate user login with subsequent activities",
+    "query_string": "tag:login",
+    "query_dsl": ""
+  }' \
+  http://localhost:5000/api/v1/sketches/1/views/
+
+# Create suspicious activity correlation
+curl -X POST -u admin:admin \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Suspicious Activity",
+    "description": "Events tagged as suspicious across all sources",
+    "query_string": "tag:suspicious OR tag:c2 OR tag:exfiltration",
+    "query_dsl": ""
+  }' \
+  http://localhost:5000/api/v1/sketches/1/views/
+Subtask 3.3: Manual Correlation Analysis
+In the Timesketch web interface:
+
+Navigate to your Incident Analysis Lab sketch
+Use the search bar to query: john.doe
+Apply time filters to focus on the incident timeframe
+Create bookmarks for related events
+Add comments to document your findings
+Task 4: Analyze Super Timeline for Attack Patterns
+Subtask 4.1: Identify Attack Timeline
+# Search for attack indicators using API
+curl -u admin:admin \
+  "http://localhost:5000/api/v1/sketches/1/explore/?q=tag:suspicious%20OR%20tag:c2%20OR%20shell.php"
+
+# Export timeline data for analysis
+curl -u admin:admin \
+  "http://localhost:5000/api/v1/sketches/1/explore/export/?q=*" \
+  -o timeline_export.json
+Subtask 4.2: Pattern Analysis
+Create analysis script:
+
+cat > analyze_timeline.py << 'EOF'
+#!/usr/bin/env python3
+import json
+import datetime
+from collections import defaultdict
+
+def analyze_timeline(filename):
+    with open(filename, 'r') as f:
+        data = json.load(f)
+    
+    events_by_time = defaultdict(list)
+    suspicious_events = []
+    
+    for event in data.get('objects', []):
+        timestamp = event.get('datetime')
+        message = event.get('message', '')
+        tags = event.get('tag', [])
+        
+        if any(tag in ['suspicious', 'c2', 'exfiltration'] for tag in tags):
+            suspicious_events.append({
+                'time': timestamp,
+                'message': message,
+                'source': event.get('source', ''),
+                'tags': tags
+            })
+    
+    print("=== ATTACK TIMELINE ANALYSIS ===")
+    print(f"Total suspicious events found: {len(suspicious_events)}")
+    print("\nSuspicious Events Timeline:")
+    
+    for event in sorted(suspicious_events, key=lambda x: x['time']):
+        print(f"{event['time']} - {event['source']}: {event['message']}")
+    
+    return suspicious_events
+
+if __name__ == "__main__":
+    analyze_timeline('timeline_export.json')
+EOF
+
+chmod +x analyze_timeline.py
+python3 analyze_timeline.py
+Subtask 4.3: Generate Attack Pattern Report
+cat > generate_report.py << 'EOF'
+#!/usr/bin/env python3
+import json
+from datetime import datetime
+
+def generate_attack_report():
+    report = """
+=== INCIDENT ANALYSIS REPORT ===
+Generated: {}
+
+ATTACK TIMELINE RECONSTRUCTION:
+
+1. Initial Access (08:29:45)
+   - Web application login attempt detected
+   - Source: Apache Access Logs
+   - Indicator: Admin panel access
+
+2. Credential Compromise (08:30:15)
+   - Successful user login: john.doe
+   - Source: Windows Event Logs
+   - Indicator: Legitimate user account compromise
+
+3. Lateral Movement (08:31:22)
+   - Command execution via cmd.exe
+   - Source: Windows Event Logs
+   - Indicator: Process creation
+
+4. Data Discovery (08:32:45)
+   - Sensitive file access detected
+   - Source: Windows Event Logs
+   - File: C:\\sensitive\\data.txt
+
+5. Web Shell Deployment (08:33:20)
+   - File upload to web server
+   - Source: Apache Access Logs
+   - Indicator: Malicious file upload
+
+6. Command & Control (08:34:15)
+   - Web shell execution
+   - Source: Apache Access Logs
+   - File: /uploads/shell.php
+
+7. Data Exfiltration (08:35:25)
+   - Large outbound data transfer
+   - Source: Network Traffic Logs
+   - Volume: 50MB
+
+RECOMMENDATIONS:
+- Implement file integrity monitoring
+- Deploy web application firewall
+- Monitor for unusual data transfers
+- Review user access controls
+""".format(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    
+    with open('incident_report.txt', 'w') as f:
+        f.write(report)
+    
+    print(report)
+
+if __name__ == "__main__":
+    generate_attack_report()
+EOF
+
+python3 generate_report.py
+Subtask 4.4: Validate Analysis Results
+# Review generated report
+cat incident_report.txt
+
+# Check timeline correlation accuracy
+echo "=== TIMELINE VALIDATION ==="
+echo "Events should show logical progression:"
+echo "1. Web access -> 2. Login -> 3. File access -> 4. Exfiltration"
+
+# Verify all data sources contributed
+echo -e "\n=== SOURCE VERIFICATION ==="
+echo "Windows Events: Process and file access logs"
+echo "Apache Logs: Web application interactions"
+echo "Network Traffic: C2 communication and data transfer"
+Conclusion
+You have successfully completed super timeline analysis using Timesketch. This lab demonstrated how to:
+
+Install and configure Timesketch for forensic analysis
+Import multiple data sources to create comprehensive timelines
+Correlate events across different log types and systems
+Identify attack patterns through timeline reconstruction
+Generate incident reports based on timeline analysis
+Super timeline analysis is crucial for incident response and forensic investigations, enabling analysts to reconstruct attack sequences, identify indicators of compromise, and understand the full scope of security incidents. The correlation capabilities of Timesketch help connect seemingly unrelated events to reveal the complete attack story.
+
+This methodology is essential for cybersecurity professionals conducting digital forensics, incident response, and threat hunting activities in enterprise environments.
