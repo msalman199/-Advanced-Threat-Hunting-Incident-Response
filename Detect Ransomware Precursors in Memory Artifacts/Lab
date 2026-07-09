@@ -1,0 +1,181 @@
+Detect Ransomware Precursors in Memory Artifacts
+Learning Objectives
+By completing this lab, you will:
+
+Analyze memory dumps to identify ransomware signatures and indicators
+Detect precursor activities that lead to ransomware deployment
+Use open-source memory forensics tools to investigate malicious processes
+Correlate memory artifacts with ransomware attack patterns
+Prerequisites
+Basic understanding of Linux command line
+Familiarity with process management concepts
+Knowledge of file systems and memory structures
+Understanding of malware analysis fundamentals
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated environment. The provided Linux machine is bare metal with no pre-installed tools, so you will install all required tools during the lab exercises.
+
+Task 1: Analyze Memory Artifacts for Ransomware Signatures
+Subtask 1.1: Install Required Tools
+Install Volatility3 and supporting tools for memory analysis:
+
+# Update system packages
+sudo apt update && sudo apt upgrade -y
+
+# Install Python and pip
+sudo apt install python3 python3-pip git wget -y
+
+# Install Volatility3
+git clone https://github.com/volatilityfoundation/volatility3.git
+cd volatility3
+pip3 install -r requirements.txt
+sudo python3 setup.py install
+
+# Install additional forensics tools
+sudo apt install binwalk hexdump strings -y
+
+# Verify installation
+python3 vol.py --help
+Subtask 1.2: Create Sample Memory Dump
+Generate a memory dump for analysis:
+
+# Create working directory
+mkdir ~/ransomware_analysis
+cd ~/ransomware_analysis
+
+# Install LiME (Linux Memory Extractor)
+git clone https://github.com/504ensicsLabs/LiME.git
+cd LiME/src
+make
+
+# Create memory dump
+sudo insmod lime-$(uname -r).ko "path=~/ransomware_analysis/memory.lime format=lime"
+
+# Verify dump creation
+ls -lh ~/ransomware_analysis/memory.lime
+Subtask 1.3: Analyze Process List
+Examine running processes for suspicious activity:
+
+cd ~/ransomware_analysis
+
+# List all processes
+python3 ~/volatility3/vol.py -f memory.lime linux.pslist
+
+# Look for suspicious process names
+python3 ~/volatility3/vol.py -f memory.lime linux.pslist | grep -E "(crypt|lock|ransom|encrypt)"
+
+# Check process tree
+python3 ~/volatility3/vol.py -f memory.lime linux.pstree
+Subtask 1.4: Examine Network Connections
+Identify suspicious network activity:
+
+# Check network connections
+python3 ~/volatility3/vol.py -f memory.lime linux.netstat
+
+# Look for connections to suspicious IPs or ports
+python3 ~/volatility3/vol.py -f memory.lime linux.netstat | grep -E "(443|80|8080|4444)"
+Subtask 1.5: Search for Ransomware Strings
+Look for common ransomware indicators in memory:
+
+# Extract strings from memory dump
+strings memory.lime > memory_strings.txt
+
+# Search for ransomware-related strings
+grep -i "encrypt\|ransom\|bitcoin\|decrypt\|payment\|restore" memory_strings.txt | head -20
+
+# Search for file extension patterns
+grep -E "\.(locked|encrypted|crypto|vault)" memory_strings.txt | head -10
+
+# Look for ransom note keywords
+grep -i "your files\|pay\|bitcoin\|restore\|decrypt" memory_strings.txt | head -15
+Task 2: Identify Precursor Actions Leading to Ransomware Attacks
+Subtask 2.1: Analyze File System Activity
+Examine file operations that precede ransomware deployment:
+
+# Check for recently modified files
+python3 ~/volatility3/vol.py -f memory.lime linux.mount
+
+# Look for suspicious file handles
+python3 ~/volatility3/vol.py -f memory.lime linux.lsof | grep -E "\.(exe|bat|ps1|vbs)"
+Subtask 2.2: Investigate Process Command Lines
+Examine command line arguments for malicious activity:
+
+# Extract command line arguments
+python3 ~/volatility3/vol.py -f memory.lime linux.cmdline
+
+# Look for PowerShell or script execution
+python3 ~/volatility3/vol.py -f memory.lime linux.cmdline | grep -E "(powershell|cmd|bash|python)"
+
+# Search for download activities
+python3 ~/volatility3/vol.py -f memory.lime linux.cmdline | grep -E "(wget|curl|download)"
+Subtask 2.3: Examine Memory Sections
+Analyze memory sections for injected code:
+
+# Check memory mappings
+python3 ~/volatility3/vol.py -f memory.lime linux.proc.Maps
+
+# Look for executable memory regions
+python3 ~/volatility3/vol.py -f memory.lime linux.proc.Maps | grep -E "r-x|rwx"
+Subtask 2.4: Detect Privilege Escalation
+Identify attempts to gain elevated privileges:
+
+# Check for SUID processes
+python3 ~/volatility3/vol.py -f memory.lime linux.pslist | grep -E "(root|sudo)"
+
+# Look for capability changes
+python3 ~/volatility3/vol.py -f memory.lime linux.capabilities
+Subtask 2.5: Create Analysis Report
+Document findings and create a comprehensive report:
+
+# Create analysis report
+cat > ransomware_analysis_report.txt << EOF
+RANSOMWARE PRECURSOR ANALYSIS REPORT
+====================================
+
+Date: $(date)
+Memory Dump: memory.lime
+Size: $(ls -lh memory.lime | awk '{print $5}')
+
+SUSPICIOUS PROCESSES:
+$(python3 ~/volatility3/vol.py -f memory.lime linux.pslist | grep -E "(crypt|lock|ransom|encrypt)" || echo "None detected")
+
+NETWORK CONNECTIONS:
+$(python3 ~/volatility3/vol.py -f memory.lime linux.netstat | head -10)
+
+RANSOMWARE INDICATORS:
+$(grep -i "encrypt\|ransom\|bitcoin" memory_strings.txt | head -5 || echo "None found")
+
+RECOMMENDATIONS:
+- Monitor processes with encryption-related names
+- Block suspicious network connections
+- Implement file integrity monitoring
+- Regular memory analysis for early detection
+
+EOF
+
+# Display report
+cat ransomware_analysis_report.txt
+Subtask 2.6: Verify Analysis Results
+Validate findings and ensure completeness:
+
+# Count total processes analyzed
+echo "Total processes: $(python3 ~/volatility3/vol.py -f memory.lime linux.pslist | wc -l)"
+
+# Count network connections
+echo "Network connections: $(python3 ~/volatility3/vol.py -f memory.lime linux.netstat | wc -l)"
+
+# Count suspicious strings found
+echo "Suspicious strings: $(grep -i "encrypt\|ransom\|bitcoin" memory_strings.txt | wc -l)"
+
+# Create summary
+echo "Analysis completed successfully. Check ransomware_analysis_report.txt for detailed findings."
+Conclusion
+You have successfully completed a comprehensive memory forensics analysis to detect ransomware precursors. This lab demonstrated how to use Volatility3 and other open-source tools to analyze memory dumps, identify suspicious processes, examine network connections, and detect early indicators of ransomware activity.
+
+Key accomplishments include:
+
+Installing and configuring memory forensics tools
+Creating and analyzing memory dumps
+Identifying ransomware signatures in memory artifacts
+Detecting precursor activities that lead to ransomware deployment
+Creating comprehensive analysis reports
+These skills are essential for incident response teams, security analysts, and digital forensics professionals who need to detect and respond to ransomware threats before they cause significant damage to organizational systems and data.
