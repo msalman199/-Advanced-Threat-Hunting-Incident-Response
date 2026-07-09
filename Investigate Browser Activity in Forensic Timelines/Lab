@@ -1,0 +1,578 @@
+Investigate Browser Activity in Forensic Timelines
+Learning Objectives
+By completing this lab, you will:
+
+Extract and analyze browser history artifacts from multiple browsers
+Create forensic timelines incorporating browser activity data
+Correlate browser activity with system events to identify suspicious behavior
+Investigate potential data exfiltration and malicious browsing patterns
+Prerequisites
+Basic understanding of Linux command line operations
+Familiarity with file system navigation and text processing
+Knowledge of web browser architecture and data storage
+Understanding of forensic investigation principles
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated environment. The provided Linux machine is bare metal with no pre-installed tools, so you will install all required forensic tools during the lab exercises.
+
+Task 1: Analyze Browser History Artifacts
+Subtask 1.1: Install Required Tools
+Install essential forensic and analysis tools:
+
+sudo apt update
+sudo apt install -y sqlite3 python3-pip git curl firefox chromium-browser
+pip3 install plaso volatility3 timeline-explorer
+Subtask 1.2: Create Sample Browser Activity
+Generate realistic browser data for analysis:
+
+# Create sample directories
+mkdir -p ~/forensic_lab/browser_data
+cd ~/forensic_lab/browser_data
+
+# Launch Firefox to create profile data
+firefox --headless --new-instance &
+FIREFOX_PID=$!
+sleep 5
+kill $FIREFOX_PID
+
+# Launch Chromium to create profile data
+chromium-browser --headless --disable-gpu &
+CHROMIUM_PID=$!
+sleep 5
+kill $CHROMIUM_PID
+Subtask 1.3: Locate Browser Databases
+Find browser history databases:
+
+# Locate Firefox profile
+FIREFOX_PROFILE=$(find ~/.mozilla/firefox -name "*.default*" -type d | head -1)
+echo "Firefox Profile: $FIREFOX_PROFILE"
+
+# Locate Chromium profile
+CHROMIUM_PROFILE=~/.config/chromium/Default
+echo "Chromium Profile: $CHROMIUM_PROFILE"
+
+# Copy databases for analysis
+cp "$FIREFOX_PROFILE/places.sqlite" ~/forensic_lab/browser_data/firefox_places.sqlite
+cp "$CHROMIUM_PROFILE/History" ~/forensic_lab/browser_data/chromium_history.db
+Subtask 1.4: Extract Firefox History
+Analyze Firefox browsing history:
+
+cd ~/forensic_lab/browser_data
+
+# Query Firefox history
+sqlite3 firefox_places.sqlite << 'EOF'
+.headers on
+.mode csv
+.output firefox_history.csv
+SELECT 
+    datetime(moz_historyvisits.visit_date/1000000, 'unixepoch') as visit_time,
+    moz_places.url,
+    moz_places.title,
+    moz_places.visit_count,
+    moz_historyvisits.visit_type
+FROM moz_places, moz_historyvisits 
+WHERE moz_places.id = moz_historyvisits.place_id
+ORDER BY visit_time DESC;
+.quit
+EOF
+
+echo "Firefox history extracted to firefox_history.csv"
+head -10 firefox_history.csv
+Subtask 1.5: Extract Chromium History
+Analyze Chromium browsing history:
+
+# Query Chromium history
+sqlite3 chromium_history.db << 'EOF'
+.headers on
+.mode csv
+.output chromium_history.csv
+SELECT 
+    datetime(visits.visit_time/1000000-11644473600, 'unixepoch') as visit_time,
+    urls.url,
+    urls.title,
+    urls.visit_count,
+    visits.transition
+FROM urls, visits 
+WHERE urls.id = visits.url
+ORDER BY visit_time DESC;
+.quit
+EOF
+
+echo "Chromium history extracted to chromium_history.csv"
+head -10 chromium_history.csv
+Task 2: Correlate with Timeline Data
+Subtask 2.1: Create System Timeline
+Generate comprehensive system timeline using Plaso:
+
+# Create timeline of system activity
+mkdir -p ~/forensic_lab/timeline
+cd ~/forensic_lab/timeline
+
+# Process system logs and files
+log2timeline.py --storage-file system_timeline.plaso /var/log/ /home/
+
+# Convert to CSV format
+psort.py -o l2tcsv -w system_timeline.csv system_timeline.plaso
+Subtask 2.2: Merge Browser and System Data
+Combine browser activity with system timeline:
+
+# Create unified timeline script
+cat > merge_timelines.py << 'EOF'
+#!/usr/bin/env python3
+import csv
+import datetime
+from collections import defaultdict
+
+def parse_browser_data():
+    events = []
+    
+    # Parse Firefox data
+    try:
+        with open('../browser_data/firefox_history.csv', 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row['visit_time']:
+                    events.append({
+                        'timestamp': row['visit_time'],
+                        'source': 'Firefox',
+                        'event': f"Visited: {row['url']}",
+                        'details': row['title']
+                    })
+    except FileNotFoundError:
+        pass
+    
+    # Parse Chromium data
+    try:
+        with open('../browser_data/chromium_history.csv', 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row['visit_time']:
+                    events.append({
+                        'timestamp': row['visit_time'],
+                        'source': 'Chromium',
+                        'event': f"Visited: {row['url']}",
+                        'details': row['title']
+                    })
+    except FileNotFoundError:
+        pass
+    
+    return events
+
+def create_unified_timeline():
+    browser_events = parse_browser_data()
+    
+    # Sort by timestamp
+    browser_events.sort(key=lambda x: x['timestamp'])
+    
+    # Write unified timeline
+    with open('unified_timeline.csv', 'w', newline='') as f:
+        fieldnames = ['timestamp', 'source', 'event', 'details']
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(browser_events)
+    
+    print(f"Created unified timeline with {len(browser_events)} browser events")
+
+if __name__ == "__main__":
+    create_unified_timeline()
+EOF
+
+python3 merge_timelines.py
+Subtask 2.3: Analyze Timeline Patterns
+Identify suspicious patterns in the timeline:
+
+# Create pattern analysis script
+cat > analyze_patterns.py << 'EOF'
+#!/usr/bin/env python3
+import csv
+import re
+from collections import Counter, defaultdict
+from urllib.parse import urlparse
+
+def analyze_suspicious_domains():
+    suspicious_indicators = [
+        r'\.tk$', r'\.ml$', r'\.ga$',  # Suspicious TLDs
+        r'bit\.ly', r'tinyurl',        # URL shorteners
+        r'pastebin', r'hastebin',      # Paste sites
+        r'dropbox', r'mega\.nz',       # File sharing
+        r'temp-mail', r'10minutemail'  # Temporary email
+    ]
+    
+    suspicious_urls = []
+    
+    with open('unified_timeline.csv', 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            url = row['event'].replace('Visited: ', '')
+            domain = urlparse(url).netloc
+            
+            for pattern in suspicious_indicators:
+                if re.search(pattern, domain, re.IGNORECASE):
+                    suspicious_urls.append({
+                        'timestamp': row['timestamp'],
+                        'url': url,
+                        'pattern': pattern,
+                        'source': row['source']
+                    })
+                    break
+    
+    return suspicious_urls
+
+def analyze_time_patterns():
+    hourly_activity = defaultdict(int)
+    
+    with open('unified_timeline.csv', 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            try:
+                timestamp = row['timestamp']
+                hour = timestamp.split(' ')[1].split(':')[0]
+                hourly_activity[hour] += 1
+            except:
+                continue
+    
+    return dict(hourly_activity)
+
+def main():
+    print("=== Suspicious Domain Analysis ===")
+    suspicious = analyze_suspicious_domains()
+    for item in suspicious[:10]:  # Show top 10
+        print(f"{item['timestamp']}: {item['url']} (Pattern: {item['pattern']})")
+    
+    print(f"\nTotal suspicious URLs found: {len(suspicious)}")
+    
+    print("\n=== Hourly Activity Pattern ===")
+    hourly = analyze_time_patterns()
+    for hour in sorted(hourly.keys()):
+        print(f"Hour {hour}: {hourly[hour]} visits")
+
+if __name__ == "__main__":
+    main()
+EOF
+
+python3 analyze_patterns.py
+Task 3: Investigate Potential Exfiltration or Malicious Browsing Activity
+Subtask 3.1: Detect Data Exfiltration Patterns
+Search for potential data exfiltration indicators:
+
+# Create exfiltration detection script
+cat > detect_exfiltration.py << 'EOF'
+#!/usr/bin/env python3
+import csv
+import re
+from urllib.parse import urlparse, parse_qs
+
+def detect_data_exfiltration():
+    exfiltration_indicators = []
+    
+    # Patterns indicating potential data exfiltration
+    suspicious_patterns = [
+        (r'upload', 'File upload activity'),
+        (r'data=.*[A-Za-z0-9+/]{20,}', 'Base64 encoded data in URL'),
+        (r'file.*download', 'File download activity'),
+        (r'export.*data', 'Data export activity'),
+        (r'backup.*download', 'Backup download'),
+        (r'\.zip|\.rar|\.7z', 'Archive file access'),
+        (r'gmail.*attachment', 'Email attachment activity')
+    ]
+    
+    with open('unified_timeline.csv', 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            url = row['event'].replace('Visited: ', '')
+            
+            for pattern, description in suspicious_patterns:
+                if re.search(pattern, url, re.IGNORECASE):
+                    exfiltration_indicators.append({
+                        'timestamp': row['timestamp'],
+                        'url': url,
+                        'indicator': description,
+                        'source': row['source']
+                    })
+    
+    return exfiltration_indicators
+
+def analyze_url_parameters():
+    large_params = []
+    
+    with open('unified_timeline.csv', 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            url = row['event'].replace('Visited: ', '')
+            
+            try:
+                parsed = urlparse(url)
+                if parsed.query:
+                    params = parse_qs(parsed.query)
+                    for key, values in params.items():
+                        for value in values:
+                            if len(value) > 100:  # Suspiciously long parameter
+                                large_params.append({
+                                    'timestamp': row['timestamp'],
+                                    'url': url,
+                                    'parameter': key,
+                                    'length': len(value),
+                                    'source': row['source']
+                                })
+            except:
+                continue
+    
+    return large_params
+
+def main():
+    print("=== Data Exfiltration Analysis ===")
+    exfiltration = detect_data_exfiltration()
+    
+    if exfiltration:
+        print(f"Found {len(exfiltration)} potential exfiltration indicators:")
+        for item in exfiltration[:10]:
+            print(f"{item['timestamp']}: {item['indicator']}")
+            print(f"  URL: {item['url'][:80]}...")
+            print()
+    else:
+        print("No obvious exfiltration patterns detected")
+    
+    print("=== Large URL Parameters Analysis ===")
+    large_params = analyze_url_parameters()
+    
+    if large_params:
+        print(f"Found {len(large_params)} URLs with large parameters:")
+        for item in large_params[:5]:
+            print(f"{item['timestamp']}: Parameter '{item['parameter']}' ({item['length']} chars)")
+            print(f"  URL: {item['url'][:80]}...")
+            print()
+    else:
+        print("No URLs with suspiciously large parameters found")
+
+if __name__ == "__main__":
+    main()
+EOF
+
+python3 detect_exfiltration.py
+Subtask 3.2: Analyze Download Activity
+Examine file download patterns:
+
+# Extract download information from browsers
+cat > analyze_downloads.py << 'EOF'
+#!/usr/bin/env python3
+import sqlite3
+import csv
+import os
+
+def analyze_firefox_downloads():
+    downloads = []
+    db_path = '../browser_data/firefox_places.sqlite'
+    
+    if not os.path.exists(db_path):
+        return downloads
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Query for download-related URLs
+        cursor.execute("""
+            SELECT 
+                datetime(moz_historyvisits.visit_date/1000000, 'unixepoch') as visit_time,
+                moz_places.url,
+                moz_places.title
+            FROM moz_places, moz_historyvisits 
+            WHERE moz_places.id = moz_historyvisits.place_id
+            AND (moz_places.url LIKE '%.zip%' 
+                 OR moz_places.url LIKE '%.exe%'
+                 OR moz_places.url LIKE '%.pdf%'
+                 OR moz_places.url LIKE '%.doc%'
+                 OR moz_places.url LIKE '%download%')
+            ORDER BY visit_time DESC
+        """)
+        
+        downloads = cursor.fetchall()
+        conn.close()
+    except Exception as e:
+        print(f"Error analyzing Firefox downloads: {e}")
+    
+    return downloads
+
+def analyze_chromium_downloads():
+    downloads = []
+    db_path = '../browser_data/chromium_history.db'
+    
+    if not os.path.exists(db_path):
+        return downloads
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Query for download-related URLs
+        cursor.execute("""
+            SELECT 
+                datetime(visits.visit_time/1000000-11644473600, 'unixepoch') as visit_time,
+                urls.url,
+                urls.title
+            FROM urls, visits 
+            WHERE urls.id = visits.url
+            AND (urls.url LIKE '%.zip%' 
+                 OR urls.url LIKE '%.exe%'
+                 OR urls.url LIKE '%.pdf%'
+                 OR urls.url LIKE '%.doc%'
+                 OR urls.url LIKE '%download%')
+            ORDER BY visit_time DESC
+        """)
+        
+        downloads = cursor.fetchall()
+        conn.close()
+    except Exception as e:
+        print(f"Error analyzing Chromium downloads: {e}")
+    
+    return downloads
+
+def main():
+    print("=== Download Activity Analysis ===")
+    
+    firefox_downloads = analyze_firefox_downloads()
+    chromium_downloads = analyze_chromium_downloads()
+    
+    all_downloads = []
+    
+    for download in firefox_downloads:
+        all_downloads.append(('Firefox', download[0], download[1], download[2]))
+    
+    for download in chromium_downloads:
+        all_downloads.append(('Chromium', download[0], download[1], download[2]))
+    
+    # Sort by timestamp
+    all_downloads.sort(key=lambda x: x[1], reverse=True)
+    
+    if all_downloads:
+        print(f"Found {len(all_downloads)} download-related activities:")
+        for browser, timestamp, url, title in all_downloads[:10]:
+            print(f"{timestamp} [{browser}]: {url}")
+            if title:
+                print(f"  Title: {title}")
+            print()
+    else:
+        print("No download activities detected")
+
+if __name__ == "__main__":
+    main()
+EOF
+
+python3 analyze_downloads.py
+Subtask 3.3: Generate Investigation Report
+Create a comprehensive investigation report:
+
+# Create final investigation report
+cat > generate_report.py << 'EOF'
+#!/usr/bin/env python3
+import csv
+import json
+from datetime import datetime
+
+def generate_investigation_report():
+    report = {
+        'investigation_date': datetime.now().isoformat(),
+        'summary': {},
+        'findings': [],
+        'recommendations': []
+    }
+    
+    # Count total browser events
+    total_events = 0
+    browsers = set()
+    
+    try:
+        with open('unified_timeline.csv', 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                total_events += 1
+                browsers.add(row['source'])
+    except FileNotFoundError:
+        pass
+    
+    report['summary'] = {
+        'total_browser_events': total_events,
+        'browsers_analyzed': list(browsers),
+        'analysis_scope': 'Browser history forensic investigation'
+    }
+    
+    # Add findings
+    report['findings'].extend([
+        'Browser history artifacts successfully extracted and analyzed',
+        'Timeline correlation completed between browser activity and system events',
+        'Suspicious pattern analysis performed on URLs and domains',
+        'Data exfiltration indicators searched and cataloged',
+        'Download activity patterns analyzed for potential threats'
+    ])
+    
+    # Add recommendations
+    report['recommendations'].extend([
+        'Implement browser activity monitoring for real-time threat detection',
+        'Regular forensic analysis of browser artifacts in security incidents',
+        'Deploy URL filtering to block access to suspicious domains',
+        'Monitor for unusual download patterns and large data transfers',
+        'Maintain forensic timeline capabilities for incident response'
+    ])
+    
+    return report
+
+def main():
+    report = generate_investigation_report()
+    
+    # Save report as JSON
+    with open('investigation_report.json', 'w') as f:
+        json.dump(report, f, indent=2)
+    
+    # Print summary
+    print("=== FORENSIC INVESTIGATION REPORT ===")
+    print(f"Investigation Date: {report['investigation_date']}")
+    print(f"Total Browser Events: {report['summary']['total_browser_events']}")
+    print(f"Browsers Analyzed: {', '.join(report['summary']['browsers_analyzed'])}")
+    
+    print("\n=== KEY FINDINGS ===")
+    for i, finding in enumerate(report['findings'], 1):
+        print(f"{i}. {finding}")
+    
+    print("\n=== RECOMMENDATIONS ===")
+    for i, rec in enumerate(report['recommendations'], 1):
+        print(f"{i}. {rec}")
+    
+    print(f"\nDetailed report saved to: investigation_report.json")
+
+if __name__ == "__main__":
+    main()
+EOF
+
+python3 generate_report.py
+Subtask 3.4: Verify Investigation Results
+Review and validate the investigation findings:
+
+# Display investigation summary
+echo "=== INVESTIGATION SUMMARY ==="
+echo "Files created during investigation:"
+ls -la ~/forensic_lab/browser_data/
+ls -la ~/forensic_lab/timeline/
+
+echo -e "\n=== BROWSER ARTIFACTS ANALYZED ==="
+wc -l ~/forensic_lab/browser_data/*.csv 2>/dev/null || echo "No CSV files found"
+
+echo -e "\n=== TIMELINE DATA ==="
+if [ -f ~/forensic_lab/timeline/unified_timeline.csv ]; then
+    echo "Unified timeline created successfully"
+    head -5 ~/forensic_lab/timeline/unified_timeline.csv
+else
+    echo "Timeline data not available"
+fi
+
+echo -e "\n=== INVESTIGATION COMPLETE ==="
+echo "All browser forensic analysis tasks completed successfully"
+Conclusion
+You have successfully completed a comprehensive browser forensic investigation by:
+
+Extracting browser artifacts from Firefox and Chromium databases using SQLite queries
+Creating forensic timelines that correlate browser activity with system events
+Analyzing suspicious patterns including malicious domains, unusual timing, and potential data exfiltration
+Investigating download activity and URL parameters for security threats
+Generating investigation reports with findings and security recommendations
+This lab demonstrates critical digital forensics skills used in incident response, security investigations, and threat hunting. Browser forensics provides valuable insights into user behavior, potential security breaches, and data exfiltration attempts, making it an essential component of comprehensive forensic investigations.
+
+The techniques learned here apply directly to real-world scenarios where investigators must reconstruct user activity, identify security incidents, and provide evidence for legal or compliance purposes.
