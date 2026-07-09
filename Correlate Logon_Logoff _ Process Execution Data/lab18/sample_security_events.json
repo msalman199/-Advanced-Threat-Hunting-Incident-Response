@@ -1,0 +1,39 @@
+[
+  {
+    "EventID": 4624,
+    "TimeCreated": "2024-01-15T08:30:15.123Z",
+    "LogonType": 2,
+    "TargetUserName": "jdoe",
+    "WorkstationName": "WS001",
+    "SourceNetworkAddress": "192.168.1.100",
+    "LogonProcessName": "User32",
+    "ProcessId": 1234
+  },
+  {
+    "EventID": 4634,
+    "TimeCreated": "2024-01-15T17:45:30.456Z",
+    "LogonType": 2,
+    "TargetUserName": "jdoe",
+    "WorkstationName": "WS001",
+    "ProcessId": 1234
+  },
+  {
+    "EventID": 4624,
+    "TimeCreated": "2024-01-15T22:15:45.789Z",
+    "LogonType": 3,
+    "TargetUserName": "admin",
+    "WorkstationName": "SRV001",
+    "SourceNetworkAddress": "192.168.1.200",
+    "LogonProcessName": "NtLmSsp",
+    "ProcessId": 5678
+  },
+  {
+    "EventID": 4625,
+    "TimeCreated": "2024-01-15T22:16:12.345Z",
+    "LogonType": 3,
+    "TargetUserName": "admin",
+    "WorkstationName": "SRV001",
+    "SourceNetworkAddress": "192.168.1.200",
+    "FailureReason": "Unknown user name or bad password"
+  }
+]
