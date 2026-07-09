@@ -1,0 +1,40 @@
+[
+  {
+    "EventID": 4688,
+    "TimeCreated": "2024-01-15T08:31:00.123Z",
+    "ProcessName": "C:\\Windows\\System32\\cmd.exe",
+    "ProcessId": 2468,
+    "ParentProcessId": 1234,
+    "CommandLine": "cmd.exe /c whoami",
+    "SubjectUserName": "jdoe",
+    "WorkstationName": "WS001"
+  },
+  {
+    "EventID": 4688,
+    "TimeCreated": "2024-01-15T08:32:15.456Z",
+    "ProcessName": "C:\\Windows\\System32\\net.exe",
+    "ProcessId": 3579,
+    "ParentProcessId": 2468,
+    "CommandLine": "net user administrator /active:yes",
+    "SubjectUserName": "jdoe",
+    "WorkstationName": "WS001"
+  },
+  {
+    "EventID": 4688,
+    "TimeCreated": "2024-01-15T22:16:30.789Z",
+    "ProcessName": "C:\\Windows\\System32\\powershell.exe",
+    "ProcessId": 9876,
+    "ParentProcessId": 5678,
+    "CommandLine": "powershell.exe -enc UwB0AGEAcgB0AC0AUwBsAGUAZQBwACAALQBzACAAMQAwAA==",
+    "SubjectUserName": "admin",
+    "WorkstationName": "SRV001"
+  },
+  {
+    "EventID": 4689,
+    "TimeCreated": "2024-01-15T17:44:45.321Z",
+    "ProcessName": "C:\\Windows\\System32\\cmd.exe",
+    "ProcessId": 2468,
+    "SubjectUserName": "jdoe",
+    "WorkstationName": "WS001"
+  }
+]
