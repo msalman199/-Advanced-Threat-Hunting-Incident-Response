@@ -1,0 +1,13 @@
+.headers on
+.mode csv
+.output chromium_history.csv
+SELECT 
+    datetime(visits.visit_time/1000000-11644473600, 'unixepoch') as visit_time,
+    urls.url,
+    urls.title,
+    urls.visit_count,
+    visits.transition
+FROM urls, visits 
+WHERE urls.id = visits.url
+ORDER BY visit_time DESC;
+.quit
