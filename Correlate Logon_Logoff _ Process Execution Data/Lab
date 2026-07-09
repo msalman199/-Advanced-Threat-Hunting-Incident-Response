@@ -1,0 +1,649 @@
+Correlate Logon/Logoff + Process Execution Data
+Objectives
+By completing this lab, you will:
+
+Extract logon/logoff events from Windows event logs using open-source tools
+Correlate authentication events with process execution data
+Build comprehensive timelines of suspicious user activity
+Analyze user behavior patterns for security investigations
+Prerequisites
+Basic understanding of Windows event logs and log analysis
+Familiarity with Linux command-line operations
+Knowledge of JSON data structures and parsing
+Understanding of security investigation concepts
+Lab Environment
+Al Nafi provides Linux-based cloud machines for this lab. Simply click Start Lab to access your dedicated environment. The provided Linux machine is bare metal with no pre-installed tools, so you will install all required tools during the lab exercises.
+
+Task 1: Extract Logon/Logoff Events from Event Logs
+Subtask 1.1: Install Required Tools
+Install Python and necessary libraries for log analysis:
+
+sudo apt update
+sudo apt install -y python3 python3-pip git
+pip3 install python-evtx xmltodict pandas
+Subtask 1.2: Create Sample Windows Event Log Data
+Generate sample EVTX data for analysis:
+
+mkdir ~/lab18
+cd ~/lab18
+
+# Create sample logon/logoff events in JSON format
+cat > sample_security_events.json << 'EOF'
+[
+  {
+    "EventID": 4624,
+    "TimeCreated": "2024-01-15T08:30:15.123Z",
+    "LogonType": 2,
+    "TargetUserName": "jdoe",
+    "WorkstationName": "WS001",
+    "SourceNetworkAddress": "192.168.1.100",
+    "LogonProcessName": "User32",
+    "ProcessId": 1234
+  },
+  {
+    "EventID": 4634,
+    "TimeCreated": "2024-01-15T17:45:30.456Z",
+    "LogonType": 2,
+    "TargetUserName": "jdoe",
+    "WorkstationName": "WS001",
+    "ProcessId": 1234
+  },
+  {
+    "EventID": 4624,
+    "TimeCreated": "2024-01-15T22:15:45.789Z",
+    "LogonType": 3,
+    "TargetUserName": "admin",
+    "WorkstationName": "SRV001",
+    "SourceNetworkAddress": "192.168.1.200",
+    "LogonProcessName": "NtLmSsp",
+    "ProcessId": 5678
+  },
+  {
+    "EventID": 4625,
+    "TimeCreated": "2024-01-15T22:16:12.345Z",
+    "LogonType": 3,
+    "TargetUserName": "admin",
+    "WorkstationName": "SRV001",
+    "SourceNetworkAddress": "192.168.1.200",
+    "FailureReason": "Unknown user name or bad password"
+  }
+]
+EOF
+Subtask 1.3: Create Logon Event Extractor
+Create a Python script to extract and parse logon/logoff events:
+
+cat > extract_logon_events.py << 'EOF'
+#!/usr/bin/env python3
+import json
+import pandas as pd
+from datetime import datetime
+
+def extract_logon_events(json_file):
+    """Extract and categorize logon/logoff events"""
+    
+    with open(json_file, 'r') as f:
+        events = json.load(f)
+    
+    logon_events = []
+    
+    for event in events:
+        event_id = event.get('EventID')
+        
+        # Process different logon event types
+        if event_id in [4624, 4634, 4625]:
+            logon_event = {
+                'timestamp': event.get('TimeCreated'),
+                'event_id': event_id,
+                'event_type': get_event_type(event_id),
+                'username': event.get('TargetUserName'),
+                'workstation': event.get('WorkstationName'),
+                'logon_type': event.get('LogonType'),
+                'source_ip': event.get('SourceNetworkAddress', 'N/A'),
+                'process_id': event.get('ProcessId'),
+                'failure_reason': event.get('FailureReason', 'N/A')
+            }
+            logon_events.append(logon_event)
+    
+    return logon_events
+
+def get_event_type(event_id):
+    """Map event IDs to human-readable types"""
+    event_types = {
+        4624: 'Successful Logon',
+        4634: 'Logoff',
+        4625: 'Failed Logon'
+    }
+    return event_types.get(event_id, 'Unknown')
+
+def main():
+    print("Extracting logon/logoff events...")
+    
+    events = extract_logon_events('sample_security_events.json')
+    
+    # Convert to DataFrame for analysis
+    df = pd.DataFrame(events)
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df = df.sort_values('timestamp')
+    
+    print(f"\nExtracted {len(events)} logon/logoff events:")
+    print(df.to_string(index=False))
+    
+    # Save extracted events
+    df.to_csv('extracted_logon_events.csv', index=False)
+    print("\nEvents saved to extracted_logon_events.csv")
+
+if __name__ == "__main__":
+    main()
+EOF
+
+chmod +x extract_logon_events.py
+python3 extract_logon_events.py
+Task 2: Correlate with Process Execution Data
+Subtask 2.1: Create Sample Process Execution Data
+Generate sample process execution events:
+
+cat > sample_process_events.json << 'EOF'
+[
+  {
+    "EventID": 4688,
+    "TimeCreated": "2024-01-15T08:31:00.123Z",
+    "ProcessName": "C:\\Windows\\System32\\cmd.exe",
+    "ProcessId": 2468,
+    "ParentProcessId": 1234,
+    "CommandLine": "cmd.exe /c whoami",
+    "SubjectUserName": "jdoe",
+    "WorkstationName": "WS001"
+  },
+  {
+    "EventID": 4688,
+    "TimeCreated": "2024-01-15T08:32:15.456Z",
+    "ProcessName": "C:\\Windows\\System32\\net.exe",
+    "ProcessId": 3579,
+    "ParentProcessId": 2468,
+    "CommandLine": "net user administrator /active:yes",
+    "SubjectUserName": "jdoe",
+    "WorkstationName": "WS001"
+  },
+  {
+    "EventID": 4688,
+    "TimeCreated": "2024-01-15T22:16:30.789Z",
+    "ProcessName": "C:\\Windows\\System32\\powershell.exe",
+    "ProcessId": 9876,
+    "ParentProcessId": 5678,
+    "CommandLine": "powershell.exe -enc UwB0AGEAcgB0AC0AUwBsAGUAZQBwACAALQBzACAAMQAwAA==",
+    "SubjectUserName": "admin",
+    "WorkstationName": "SRV001"
+  },
+  {
+    "EventID": 4689,
+    "TimeCreated": "2024-01-15T17:44:45.321Z",
+    "ProcessName": "C:\\Windows\\System32\\cmd.exe",
+    "ProcessId": 2468,
+    "SubjectUserName": "jdoe",
+    "WorkstationName": "WS001"
+  }
+]
+EOF
+Subtask 2.2: Create Process Correlation Script
+Develop a script to correlate logon events with process execution:
+
+cat > correlate_events.py << 'EOF'
+#!/usr/bin/env python3
+import json
+import pandas as pd
+from datetime import datetime, timedelta
+import base64
+
+def extract_process_events(json_file):
+    """Extract process execution events"""
+    
+    with open(json_file, 'r') as f:
+        events = json.load(f)
+    
+    process_events = []
+    
+    for event in events:
+        event_id = event.get('EventID')
+        
+        if event_id in [4688, 4689]:
+            process_event = {
+                'timestamp': event.get('TimeCreated'),
+                'event_id': event_id,
+                'event_type': 'Process Creation' if event_id == 4688 else 'Process Termination',
+                'process_name': event.get('ProcessName'),
+                'process_id': event.get('ProcessId'),
+                'parent_process_id': event.get('ParentProcessId'),
+                'command_line': event.get('CommandLine', 'N/A'),
+                'username': event.get('SubjectUserName'),
+                'workstation': event.get('WorkstationName')
+            }
+            process_events.append(process_event)
+    
+    return process_events
+
+def decode_powershell_command(command_line):
+    """Decode base64 encoded PowerShell commands"""
+    if '-enc' in command_line:
+        try:
+            encoded_part = command_line.split('-enc ')[1].strip()
+            decoded = base64.b64decode(encoded_part).decode('utf-16le')
+            return decoded
+        except:
+            return command_line
+    return command_line
+
+def correlate_logon_process_events(logon_file, process_file):
+    """Correlate logon events with process execution"""
+    
+    # Load logon events
+    logon_df = pd.read_csv(logon_file)
+    logon_df['timestamp'] = pd.to_datetime(logon_df['timestamp'])
+    
+    # Load process events
+    process_events = extract_process_events(process_file)
+    process_df = pd.DataFrame(process_events)
+    process_df['timestamp'] = pd.to_datetime(process_df['timestamp'])
+    
+    # Decode PowerShell commands
+    process_df['decoded_command'] = process_df['command_line'].apply(decode_powershell_command)
+    
+    correlations = []
+    
+    # Find process events within 10 minutes of logon events
+    for _, logon in logon_df.iterrows():
+        if logon['event_type'] == 'Successful Logon':
+            time_window_start = logon['timestamp']
+            time_window_end = logon['timestamp'] + timedelta(minutes=10)
+            
+            related_processes = process_df[
+                (process_df['timestamp'] >= time_window_start) &
+                (process_df['timestamp'] <= time_window_end) &
+                (process_df['username'] == logon['username']) &
+                (process_df['workstation'] == logon['workstation'])
+            ]
+            
+            for _, process in related_processes.iterrows():
+                correlation = {
+                    'logon_time': logon['timestamp'],
+                    'process_time': process['timestamp'],
+                    'username': logon['username'],
+                    'workstation': logon['workstation'],
+                    'logon_type': logon['logon_type'],
+                    'source_ip': logon['source_ip'],
+                    'process_name': process['process_name'],
+                    'command_line': process['command_line'],
+                    'decoded_command': process['decoded_command'],
+                    'time_diff_seconds': (process['timestamp'] - logon['timestamp']).total_seconds(),
+                    'suspicious_indicators': analyze_suspicious_activity(process)
+                }
+                correlations.append(correlation)
+    
+    return correlations
+
+def analyze_suspicious_activity(process):
+    """Identify suspicious process execution patterns"""
+    indicators = []
+    
+    command_line = process.get('decoded_command', '').lower()
+    process_name = process.get('process_name', '').lower()
+    
+    # Check for suspicious commands
+    suspicious_commands = [
+        'net user', 'net localgroup', 'whoami', 'systeminfo',
+        'tasklist', 'netstat', 'ipconfig', 'start-sleep',
+        'invoke-expression', 'downloadstring', 'powershell -enc'
+    ]
+    
+    for cmd in suspicious_commands:
+        if cmd in command_line:
+            indicators.append(f"Suspicious command: {cmd}")
+    
+    # Check for administrative tools
+    admin_tools = ['net.exe', 'powershell.exe', 'cmd.exe', 'wmic.exe']
+    for tool in admin_tools:
+        if tool in process_name:
+            indicators.append(f"Administrative tool: {tool}")
+    
+    # Check for encoded commands
+    if '-enc' in command_line:
+        indicators.append("Base64 encoded PowerShell command")
+    
+    return '; '.join(indicators) if indicators else 'None detected'
+
+def main():
+    print("Correlating logon and process execution events...")
+    
+    correlations = correlate_logon_process_events(
+        'extracted_logon_events.csv',
+        'sample_process_events.json'
+    )
+    
+    if correlations:
+        df = pd.DataFrame(correlations)
+        df = df.sort_values('logon_time')
+        
+        print(f"\nFound {len(correlations)} correlations:")
+        for _, corr in df.iterrows():
+            print(f"\n--- Correlation ---")
+            print(f"User: {corr['username']} on {corr['workstation']}")
+            print(f"Logon: {corr['logon_time']} (Type: {corr['logon_type']}, IP: {corr['source_ip']})")
+            print(f"Process: {corr['process_time']} (+{corr['time_diff_seconds']:.0f}s)")
+            print(f"Command: {corr['decoded_command']}")
+            print(f"Suspicious: {corr['suspicious_indicators']}")
+        
+        # Save correlations
+        df.to_csv('logon_process_correlations.csv', index=False)
+        print(f"\nCorrelations saved to logon_process_correlations.csv")
+    else:
+        print("No correlations found.")
+
+if __name__ == "__main__":
+    main()
+EOF
+
+chmod +x correlate_events.py
+python3 correlate_events.py
+Task 3: Build Timeline of Suspicious User Activity
+Subtask 3.1: Create Timeline Analysis Script
+Build comprehensive timeline analysis:
+
+cat > build_timeline.py << 'EOF'
+#!/usr/bin/env python3
+import pandas as pd
+import json
+from datetime import datetime
+
+def create_comprehensive_timeline():
+    """Create a comprehensive timeline of all user activities"""
+    
+    # Load all event data
+    logon_df = pd.read_csv('extracted_logon_events.csv')
+    correlations_df = pd.read_csv('logon_process_correlations.csv')
+    
+    # Convert timestamps
+    logon_df['timestamp'] = pd.to_datetime(logon_df['timestamp'])
+    correlations_df['logon_time'] = pd.to_datetime(correlations_df['logon_time'])
+    correlations_df['process_time'] = pd.to_datetime(correlations_df['process_time'])
+    
+    timeline_events = []
+    
+    # Add logon/logoff events to timeline
+    for _, event in logon_df.iterrows():
+        timeline_event = {
+            'timestamp': event['timestamp'],
+            'event_category': 'Authentication',
+            'event_type': event['event_type'],
+            'username': event['username'],
+            'workstation': event['workstation'],
+            'source_ip': event['source_ip'],
+            'details': f"Logon Type: {event['logon_type']}",
+            'risk_level': calculate_auth_risk(event)
+        }
+        timeline_events.append(timeline_event)
+    
+    # Add process execution events to timeline
+    for _, corr in correlations_df.iterrows():
+        timeline_event = {
+            'timestamp': corr['process_time'],
+            'event_category': 'Process Execution',
+            'event_type': 'Command Execution',
+            'username': corr['username'],
+            'workstation': corr['workstation'],
+            'source_ip': corr['source_ip'],
+            'details': corr['decoded_command'],
+            'risk_level': calculate_process_risk(corr['suspicious_indicators'])
+        }
+        timeline_events.append(timeline_event)
+    
+    # Create timeline DataFrame
+    timeline_df = pd.DataFrame(timeline_events)
+    timeline_df = timeline_df.sort_values('timestamp')
+    
+    return timeline_df
+
+def calculate_auth_risk(event):
+    """Calculate risk level for authentication events"""
+    if event['event_type'] == 'Failed Logon':
+        return 'Medium'
+    elif event['logon_type'] == 3 and event['event_type'] == 'Successful Logon':
+        return 'Medium'  # Network logon
+    elif 'admin' in str(event['username']).lower():
+        return 'High'
+    else:
+        return 'Low'
+
+def calculate_process_risk(suspicious_indicators):
+    """Calculate risk level for process execution"""
+    if suspicious_indicators == 'None detected':
+        return 'Low'
+    elif 'net user' in suspicious_indicators or 'powershell' in suspicious_indicators:
+        return 'High'
+    else:
+        return 'Medium'
+
+def generate_timeline_report(timeline_df):
+    """Generate a comprehensive timeline report"""
+    
+    print("=== SUSPICIOUS USER ACTIVITY TIMELINE ===\n")
+    
+    # Group by user for analysis
+    users = timeline_df['username'].unique()
+    
+    for user in users:
+        user_events = timeline_df[timeline_df['username'] == user].sort_values('timestamp')
+        
+        print(f"USER: {user}")
+        print("-" * 50)
+        
+        high_risk_count = len(user_events[user_events['risk_level'] == 'High'])
+        medium_risk_count = len(user_events[user_events['risk_level'] == 'Medium'])
+        
+        print(f"Total Events: {len(user_events)}")
+        print(f"High Risk Events: {high_risk_count}")
+        print(f"Medium Risk Events: {medium_risk_count}")
+        print()
+        
+        # Show timeline for this user
+        for _, event in user_events.iterrows():
+            risk_indicator = "🔴" if event['risk_level'] == 'High' else "🟡" if event['risk_level'] == 'Medium' else "🟢"
+            print(f"{event['timestamp']} [{event['risk_level']}] {event['event_category']}: {event['event_type']}")
+            print(f"  Workstation: {event['workstation']}")
+            print(f"  Source IP: {event['source_ip']}")
+            print(f"  Details: {event['details']}")
+            print()
+        
+        print("=" * 70)
+        print()
+
+def identify_attack_patterns(timeline_df):
+    """Identify potential attack patterns"""
+    
+    patterns = []
+    
+    # Group events by user and workstation
+    for user in timeline_df['username'].unique():
+        user_events = timeline_df[timeline_df['username'] == user].sort_values('timestamp')
+        
+        # Check for privilege escalation pattern
+        auth_events = user_events[user_events['event_category'] == 'Authentication']
+        process_events = user_events[user_events['event_category'] == 'Process Execution']
+        
+        if len(auth_events) > 0 and len(process_events) > 0:
+            # Check for admin commands after logon
+            admin_commands = process_events[process_events['details'].str.contains('net user|administrator', case=False, na=False)]
+            
+            if len(admin_commands) > 0:
+                patterns.append({
+                    'pattern_type': 'Privilege Escalation',
+                    'user': user,
+                    'description': f'User {user} executed administrative commands after logon',
+                    'risk_level': 'High',
+                    'events_count': len(admin_commands)
+                })
+        
+        # Check for failed logon followed by successful logon
+        failed_logons = auth_events[auth_events['event_type'] == 'Failed Logon']
+        successful_logons = auth_events[auth_events['event_type'] == 'Successful Logon']
+        
+        if len(failed_logons) > 0 and len(successful_logons) > 0:
+            patterns.append({
+                'pattern_type': 'Brute Force Attempt',
+                'user': user,
+                'description': f'Failed logon attempts followed by successful logon for {user}',
+                'risk_level': 'High',
+                'events_count': len(failed_logons)
+            })
+    
+    return patterns
+
+def main():
+    print("Building comprehensive timeline of suspicious user activity...")
+    
+    # Create timeline
+    timeline_df = create_comprehensive_timeline()
+    
+    # Generate report
+    generate_timeline_report(timeline_df)
+    
+    # Identify attack patterns
+    patterns = identify_attack_patterns(timeline_df)
+    
+    if patterns:
+        print("=== IDENTIFIED ATTACK PATTERNS ===\n")
+        for pattern in patterns:
+            print(f"Pattern: {pattern['pattern_type']}")
+            print(f"User: {pattern['user']}")
+            print(f"Risk Level: {pattern['risk_level']}")
+            print(f"Description: {pattern['description']}")
+            print(f"Related Events: {pattern['events_count']}")
+            print("-" * 50)
+    
+    # Save timeline
+    timeline_df.to_csv('suspicious_activity_timeline.csv', index=False)
+    print(f"\nTimeline saved to suspicious_activity_timeline.csv")
+    
+    # Save patterns
+    if patterns:
+        with open('attack_patterns.json', 'w') as f:
+            json.dump(patterns, f, indent=2, default=str)
+        print("Attack patterns saved to attack_patterns.json")
+
+if __name__ == "__main__":
+    main()
+EOF
+
+chmod +x build_timeline.py
+python3 build_timeline.py
+Subtask 3.2: Create Visual Timeline Summary
+Generate a summary report of findings:
+
+cat > timeline_summary.py << 'EOF'
+#!/usr/bin/env python3
+import pandas as pd
+import json
+
+def create_executive_summary():
+    """Create an executive summary of findings"""
+    
+    # Load timeline data
+    timeline_df = pd.read_csv('suspicious_activity_timeline.csv')
+    timeline_df['timestamp'] = pd.to_datetime(timeline_df['timestamp'])
+    
+    # Load attack patterns
+    try:
+        with open('attack_patterns.json', 'r') as f:
+            patterns = json.load(f)
+    except:
+        patterns = []
+    
+    print("=== EXECUTIVE SUMMARY: USER ACTIVITY ANALYSIS ===\n")
+    
+    # Overall statistics
+    total_events = len(timeline_df)
+    high_risk_events = len(timeline_df[timeline_df['risk_level'] == 'High'])
+    medium_risk_events = len(timeline_df[timeline_df['risk_level'] == 'Medium'])
+    unique_users = timeline_df['username'].nunique()
+    unique_workstations = timeline_df['workstation'].nunique()
+    
+    print("OVERVIEW:")
+    print(f"• Total Events Analyzed: {total_events}")
+    print(f"• High Risk Events: {high_risk_events}")
+    print(f"• Medium Risk Events: {medium_risk_events}")
+    print(f"• Users Involved: {unique_users}")
+    print(f"• Workstations Involved: {unique_workstations}")
+    print()
+    
+    # Time range analysis
+    start_time = timeline_df['timestamp'].min()
+    end_time = timeline_df['timestamp'].max()
+    print(f"ANALYSIS PERIOD:")
+    print(f"• From: {start_time}")
+    print(f"• To: {end_time}")
+    print()
+    
+    # User risk assessment
+    print("USER RISK ASSESSMENT:")
+    user_risk = timeline_df.groupby('username').agg({
+        'risk_level': lambda x: (x == 'High').sum(),
+        'timestamp': 'count'
+    }).rename(columns={'risk_level': 'high_risk_events', 'timestamp': 'total_events'})
+    
+    for user, data in user_risk.iterrows():
+        risk_percentage = (data['high_risk_events'] / data['total_events']) * 100
+        print(f"• {user}: {data['high_risk_events']}/{data['total_events']} high-risk events ({risk_percentage:.1f}%)")
+    print()
+    
+    # Attack patterns summary
+    if patterns:
+        print("IDENTIFIED THREATS:")
+        for pattern in patterns:
+            print(f"• {pattern['pattern_type']}: {pattern['description']}")
+        print()
+    
+    # Recommendations
+    print("RECOMMENDATIONS:")
+    if high_risk_events > 0:
+        print("• Immediate investigation required for high-risk events")
+        print("• Review user access privileges and permissions")
+        print("• Implement additional monitoring for identified users")
+    
+    if any(p['pattern_type'] == 'Privilege Escalation' for p in patterns):
+        print("• Investigate privilege escalation attempts")
+        print("• Review administrative account usage policies")
+    
+    if any(p['pattern_type'] == 'Brute Force Attempt' for p in patterns):
+        print("• Implement account lockout policies")
+        print("• Consider multi-factor authentication")
+    
+    print("• Continue monitoring for similar activity patterns")
+    print()
+
+if __name__ == "__main__":
+    create_executive_summary()
+EOF
+
+python3 timeline_summary.py
+Subtask 3.3: Verify Analysis Results
+Review all generated files and analysis results:
+
+echo "=== LAB 18 ANALYSIS RESULTS ==="
+echo
+echo "Generated Files:"
+ls -la *.csv *.json
+echo
+echo "=== Sample Timeline Data ==="
+head -5 suspicious_activity_timeline.csv
+echo
+echo "=== Correlation Summary ==="
+wc -l logon_process_correlations.csv
+echo
+echo "Lab 18 completed successfully!"
+Conclusion
+You have successfully completed Lab 18 on correlating logon/logoff and process execution data. Through this hands-on exercise, you learned to:
+
+Extract authentication events from Windows security logs using Python-based parsing tools
+Correlate user logons with subsequent process execution activities to identify suspicious behavior patterns
+Build comprehensive timelines that combine multiple data sources for security investigation
+Identify attack patterns such as privilege escalation and brute force attempts through automated analysis
+Generate executive summaries that translate technical findings into actionable security intelligence
+This correlation technique is essential for security analysts investigating insider threats, lateral movement, and privilege escalation attacks. The timeline analysis approach provides crucial context for understanding the sequence of events during security incidents, enabling more effective threat hunting and incident response activities.
